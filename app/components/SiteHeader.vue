@@ -26,6 +26,20 @@ onUnmounted(() => {
   window.removeEventListener('scroll', updateScroll)
   window.removeEventListener('resize', measureHeader)
 })
+async function navigateSection(event, href) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  const target = document.getElementById(href.split('#')[1])
+  if (!target || window.location.pathname !== '/') return
+  event.preventDefault()
+  menuOpen.value = false
+  await nextTick()
+  window.history.pushState(null, '', href)
+  target.scrollIntoView({
+    behavior: document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    block: 'start',
+  })
+}
+
 const links = [
   { label: 'Home', href: '/#home' },
   { label: 'How it works', href: '/#how-it-works' },
@@ -51,7 +65,7 @@ const links = [
         FarmBuddy<span class="-ml-2 text-[#C69316]">.</span>
       </a>
       <nav aria-label="Main navigation" class="hidden items-center gap-6 lg:flex">
-        <a v-for="link in links" :key="link.label" :href="link.href" class="text-sm font-semibold text-slate-600 transition hover:text-[#066136]">{{ link.label }}</a>
+        <a v-for="link in links" :key="link.label" :href="link.href" @click="navigateSection($event, link.href)" class="text-sm font-semibold text-slate-600 transition hover:text-[#066136]">{{ link.label }}</a>
       </nav>
       <div class="hidden items-center gap-3 lg:flex">
         <NuxtLink to="/login" class="rounded-full border border-[#066136]/25 px-5 py-2.5 text-sm font-semibold text-[#066136] transition hover:bg-[#066136]/5">Login</NuxtLink>
@@ -62,7 +76,7 @@ const links = [
       </button>
     </div>
     <nav v-if="menuOpen" id="mobile-navigation" aria-label="Mobile navigation" class="border-t border-[#066136]/10 px-5 pb-5 pt-2 lg:hidden" @keydown.esc="menuOpen = false">
-      <a v-for="link in links" :key="link.label" :href="link.href" class="block rounded-lg px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-[#066136]/5" @click="menuOpen = false">{{ link.label }}</a>
+      <a v-for="link in links" :key="link.label" :href="link.href" class="block rounded-lg px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-[#066136]/5" @click="navigateSection($event, link.href)">{{ link.label }}</a>
       <div class="mt-3 flex gap-3">
         <NuxtLink to="/login" class="flex-1 rounded-full border border-[#066136]/25 px-5 py-3 text-center text-sm font-semibold text-[#066136]" @click="menuOpen = false">Login</NuxtLink>
         <NuxtLink to="/register" class="flex-1 rounded-full bg-[#066136] px-5 py-3 text-center text-sm font-semibold text-white" @click="menuOpen = false">Register</NuxtLink>

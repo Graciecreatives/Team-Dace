@@ -1,4 +1,5 @@
 <script setup>
+import HowItWorks from '~/components/HowItWorks.vue';
 import FarmToolkit from '~/components/FarmToolkit.vue';
 import AppPreviews from '~/components/AppPreviews.vue';
 import GrowTogether from '~/components/GrowTogether.vue';
@@ -238,6 +239,7 @@ onUnmounted(() => {
 
             <FarmToolkit :features="features" />
         </section>
+        <HowItWorks />
         <GrowTogether />
     </main>
 </template>
