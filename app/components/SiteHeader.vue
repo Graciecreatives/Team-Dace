@@ -2,6 +2,30 @@
 import { Menu, Sprout, X } from 'lucide-vue-next'
 
 const menuOpen = ref(false)
+const isScrolled = ref(false)
+const headerSlot = ref(null)
+let scrollThreshold = 40
+
+function updateScroll() {
+  isScrolled.value = window.scrollY > scrollThreshold
+}
+
+function measureHeader() {
+  if (headerSlot.value) {
+    scrollThreshold = headerSlot.value.getBoundingClientRect().top + window.scrollY
+  }
+  updateScroll()
+}
+
+onMounted(() => {
+  measureHeader()
+  window.addEventListener('scroll', updateScroll, { passive: true })
+  window.addEventListener('resize', measureHeader)
+})
+onUnmounted(() => {
+  window.removeEventListener('scroll', updateScroll)
+  window.removeEventListener('resize', measureHeader)
+})
 const links = [
   { label: 'Home', href: '/#home' },
   { label: 'How it works', href: '/#how-it-works' },
@@ -11,7 +35,14 @@ const links = [
 </script>
 
 <template>
-  <header class="relative z-30 bg-transparent">
+  <div ref="headerSlot" :class="isScrolled ? 'h-[76px] lg:h-[72px]' : ''">
+  <Teleport to="body" :disabled="!isScrolled">
+  <header
+    :class="isScrolled
+      ? 'fixed inset-x-3 top-3 z-50 mx-auto max-w-6xl rounded-[2rem] border border-[#066136]/10 bg-[#F7F4EF]/90 shadow-[0_8px_32px_rgba(6,61,36,0.12)] backdrop-blur-xl sm:inset-x-6 sm:top-4'
+      : 'relative z-30 bg-transparent'"
+    class="transition-[background-color,box-shadow,border-radius] duration-300 motion-reduce:transition-none"
+  >
     <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-4 sm:px-6">
       <a href="/#home" aria-label="FarmBuddy home" class="flex shrink-0 items-center gap-2 text-xl font-extrabold tracking-tight text-[#066136]">
         <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#066136] text-[#F9C23C]">
@@ -38,4 +69,6 @@ const links = [
       </div>
     </nav>
   </header>
+  </Teleport>
+  </div>
 </template>
