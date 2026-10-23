@@ -18,6 +18,10 @@ export function store(operation, mutate = false) {
       if (error.code !== 'ENOENT') throw error
       data = { version: 1, users: [], sessions: [], records: [], reminders: [] }
     }
+    for (const key of ['enterprises', 'inventory', 'referrals', 'notes']) {
+      if (data[key] === undefined) data[key] = []
+      else if (!Array.isArray(data[key])) throw new Error(`Invalid FarmBuddy ${key} store`)
+    }
     const result = await operation(data)
     if (mutate) {
       await mkdir(dirname(file), { recursive: true, mode: 0o700 })

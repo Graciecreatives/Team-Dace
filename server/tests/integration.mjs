@@ -60,6 +60,70 @@ try {
   assert.equal((await request('/api/auth/me', 'GET', undefined, a)).payload.user.id, first.payload.user.id)
   assert.deepEqual((await request('/api/farm', 'GET', undefined, a)).payload, { records: [], reminders: [] })
   const b = (await request('/api/auth/register', 'POST', { ...account, email: 'second@example.test' })).cookie
+  await request('/api/tools', 'GET', undefined, undefined, 401)
+  const emptyTools = { enterprises: [], inventory: [], referrals: [], notes: [] }
+  // Existing v1 stores have no tools arrays. Reads must migrate without losing base data.
+  const oldStore = JSON.parse(await readFile(process.env.FARMBUDDY_DATA_FILE, 'utf8'))
+  for (const key of Object.keys(emptyTools)) delete oldStore[key]
+  await writeFile(process.env.FARMBUDDY_DATA_FILE, JSON.stringify(oldStore))
+  assert.deepEqual((await request('/api/tools', 'GET', undefined, a)).payload, emptyTools)
+  const samples = {
+    enterprises: { kind: 'crops', name: 'Maize', quantity: 2.5, unit: 'acres', startedOn: '2028-02-29', notes: 'North field' },
+    inventory: { name: 'Feed', quantity: 10, unit: 'kg', threshold: 12, expiresOn: '2027-01-01', notes: '' },
+    referrals: { title: 'Leaf observations', professionalType: 'agronomist', summary: 'Yellow leaves. Ask about next steps.', contact: 'My local adviser', status: 'draft' },
+    notes: { id: '11111111-1111-4111-8111-111111111111', title: 'Field walk', body: 'Observed growth' },
+  }
+  const singular = { enterprises: 'enterprise', inventory: 'inventory', referrals: 'referral', notes: 'note' }
+  for (const [collection, input] of Object.entries(samples)) {
+    const path = `/api/tools/${collection}`
+    await request(path, 'POST', input, undefined, 401)
+    await request(path, 'POST', input, a, 403, { Origin: 'https://evil.example' })
+    await request(path, 'POST', { ...input, userId: 'forged' }, a, 400)
+    await request(path, 'POST', { ...input, toString: 'forged' }, a, 400)
+    const item = (await request(path, 'POST', input, a)).payload[singular[collection]]
+    assert.equal(item.userId, undefined)
+    assert.ok(item.createdAt && item.updatedAt)
+    assert.deepEqual((await request('/api/tools', 'GET', undefined, b)).payload, emptyTools)
+    await request(`${path}/${item.id}`, 'PATCH', { [collection === 'referrals' || collection === 'notes' ? 'title' : 'name']: 'Changed' }, b, 404)
+    await request(`${path}/${item.id}`, 'DELETE', undefined, b, 404)
+    const field = collection === 'referrals' || collection === 'notes' ? 'title' : 'name'
+    const updated = (await request(`${path}/${item.id}`, 'PATCH', { [field]: 'Changed' }, a)).payload[singular[collection]]
+    assert.equal(updated[field], 'Changed')
+    await request(`${path}/${item.id}`, 'PATCH', { [field]: '' }, a, 400)
+    await request(`${path}/${item.id}`, 'PATCH', { createdAt: 'forged' }, a, 400)
+    const persistedTool = spawnSync(process.execPath, ['--input-type=module', '-e', `import { store } from './server/utils/store.js'; const item = await store(d => d.${collection}.find(i => i.id === '${item.id}')); if (item?.${field} !== 'Changed') process.exit(1)`], { env: process.env, encoding: 'utf8' })
+    assert.equal(persistedTool.status, 0, persistedTool.stderr)
+    if (collection === 'notes') {
+      const concurrent = await Promise.all(Array.from({ length: 6 }, () => request(path, 'POST', input, a)))
+      assert.ok(concurrent.every(result => result.payload.note.title === 'Changed'))
+      assert.equal((await request('/api/tools', 'GET', undefined, a)).payload.notes.length, 1)
+      const replay = (await request(path, 'POST', input, a)).payload.note
+      assert.deepEqual(replay, updated, 'Offline replay must not overwrite a newer note')
+      await request(`${path}/${item.id}`, 'PATCH', { title: 'Stale', expectedUpdatedAt: item.updatedAt }, a, 409)
+      const other = (await request(path, 'POST', input, b)).payload.note
+      assert.equal(other.title, input.title, 'Client UUID is scoped to user')
+      await request(`${path}/${item.id}`, 'DELETE', undefined, b)
+    }
+    await request(`${path}/${item.id}`, 'DELETE', undefined, a)
+    await request(`${path}/${item.id}`, 'DELETE', undefined, a, 404)
+  }
+  for (const [collection, invalids] of Object.entries({
+    enterprises: [{ kind: 'fish' }, { quantity: -1 }, { quantity: '2' }, { quantity: 1e13 }, { startedOn: '2026-02-29' }, { name: '' }, { unit: 'x'.repeat(61) }],
+    inventory: [{ quantity: null }, { quantity: -1 }, { threshold: -1 }, { threshold: '1' }, { expiresOn: '0000-01-01' }, { expiresOn: '2026-13-01' }],
+    referrals: [{ professionalType: 'dealer' }, { status: 'sent' }, { summary: '' }, { contact: 'x'.repeat(301) }],
+    notes: [{ id: 'bad' }, { title: '' }, { body: 'x'.repeat(10001) }, { updatedAt: 'client-time' }],
+  })) for (const invalid of invalids) await request(`/api/tools/${collection}`, 'POST', { ...samples[collection], ...invalid }, a, 400)
+  const optionalEnterprise = (await request('/api/tools/enterprises', 'POST', { kind: 'livestock', name: 'Hens' }, a)).payload.enterprise
+  assert.equal(optionalEnterprise.quantity, null)
+  await request(`/api/tools/enterprises/${optionalEnterprise.id}`, 'DELETE', undefined, a)
+  const migrated = JSON.parse(await readFile(process.env.FARMBUDDY_DATA_FILE, 'utf8'))
+  assert.ok(Object.keys(emptyTools).every(key => Array.isArray(migrated[key])))
+  const validStore = JSON.stringify(migrated)
+  for (const key of ['users', 'sessions', 'records', 'reminders', ...Object.keys(emptyTools)]) {
+    await writeFile(process.env.FARMBUDDY_DATA_FILE, JSON.stringify({ ...migrated, [key]: {} }))
+    await request('/api/tools', 'GET', undefined, a, 500)
+  }
+  await writeFile(process.env.FARMBUDDY_DATA_FILE, validStore)
   const profile = { farmName: ' New Farm ', farmType: 'poultry', onboardingCompleted: true, location: ' Accra ', mainEnterprises: ' Hens, ducks ', preferredLanguage: ' English ' }
   await request('/api/farm/profile', 'PATCH', profile, undefined, 401)
   await request('/api/farm/profile', 'PATCH', profile, a, 403, { Origin: 'https://evil.example' })

@@ -107,6 +107,38 @@ function newSession(data, userId, event, rawToken) {
   data.sessions.push({ userId, tokenHash: digest(rawToken), expiresAt: Date.now() + lifetime * 1000 })
 }
 
+const toolNames = { enterprises: 'enterprise', inventory: 'inventory', referrals: 'referral', notes: 'note' }
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+function toolFields(collection, input, partial) {
+  const schemas = {
+    enterprises: { kind: ['crops', 'livestock'], name: 150, quantity: 'optionalNumber', unit: 60, startedOn: 'date', notes: 4000 },
+    inventory: { name: 150, quantity: 'number', unit: 60, threshold: 'number', expiresOn: 'date', notes: 4000 },
+    referrals: { title: 200, professionalType: ['agronomist', 'veterinarian'], summary: 6000, contact: 300, status: ['draft', 'contacted', 'resolved'] },
+    notes: { title: 200, body: 10000 },
+  }
+  const schema = schemas[collection]
+  if (Object.keys(input).some(key => !Object.hasOwn(schema, key) && !(collection === 'notes' && (key === 'id' || key === 'expectedUpdatedAt')))) fail(400, 'Unknown tool field')
+  const result = {}
+  for (const [key, rule] of Object.entries(schema)) {
+    if (partial && input[key] === undefined) continue
+    const optional = ['unit', 'notes', 'contact', 'startedOn', 'expiresOn', 'body'].includes(key)
+    let value = input[key]
+    if (Array.isArray(rule)) {
+      if (key === 'status' && value === undefined) value = 'draft'
+      if (!rule.includes(value)) fail(400, `Invalid ${key}`)
+    } else if (rule === 'number' || rule === 'optionalNumber') {
+      if (rule === 'optionalNumber' && (value === undefined || value === null)) value = null
+      else if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e12) fail(400, `Invalid ${key}`)
+    } else if (rule === 'date') {
+      value = text(value, key, 10, true)
+      if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value || value.startsWith('0000'))) fail(400, `Invalid ${key}`)
+    } else value = text(value, key, rule, optional)
+    result[key] = value
+  }
+  if (collection === 'notes' && input.expectedUpdatedAt !== undefined && (typeof input.expectedUpdatedAt !== 'string' || input.expectedUpdatedAt.length > 40)) fail(400, 'Invalid expectedUpdatedAt')
+  return result
+}
+
 export default defineEventHandler(async event => {
   setHeader(event, 'Cache-Control', 'no-store')
   const path = getRequestURL(event).pathname.replace(/\/$/, '')
@@ -217,5 +249,45 @@ export default defineEventHandler(async event => {
       return { reminder: publicRecord(reminder) }
     }, true)
   }
+  if (method === 'GET' && path === '/api/tools') {
+    return store(data => {
+      const user = authenticated(data, event)
+      return Object.fromEntries(Object.keys(toolNames).map(key => [key, data[key].filter(item => item.userId === user.id).map(publicRecord)]))
+    })
+  }
+  const toolRoute = path.match(/^\/api\/tools\/(enterprises|inventory|referrals|notes)(?:\/([^/]+))?$/)
+  if (toolRoute && ['POST', 'PATCH', 'DELETE'].includes(method)) {
+    await store(data => authenticated(data, event))
+    const [, collection, routeId] = toolRoute
+    if ((method === 'POST' && routeId) || (method !== 'POST' && !routeId)) fail(404, 'API endpoint not found')
+    if (routeId && !uuid.test(routeId)) fail(400, 'Invalid id')
+    const input = method === 'DELETE' ? {} : await body(event)
+    if (collection === 'notes' && method === 'POST' && (typeof input.id !== 'string' || !uuid.test(input.id))) fail(400, 'A client UUID id is required')
+    if (method === 'PATCH' && input.id !== undefined) fail(400, 'Cannot change id')
+    const fields = method === 'DELETE' ? {} : toolFields(collection, input, method === 'PATCH')
+    return store(data => {
+      const user = authenticated(data, event)
+      const id = routeId || (collection === 'notes' ? input.id : randomUUID())
+      const index = data[collection].findIndex(item => item.id === id && item.userId === user.id)
+      if (method === 'POST') {
+        if (index >= 0) return { [toolNames[collection]]: publicRecord(data[collection][index]) }
+        const now = new Date().toISOString()
+        const item = { ...fields, id, userId: user.id, createdAt: now, updatedAt: now }
+        data[collection].push(item)
+        return { [toolNames[collection]]: publicRecord(item) }
+      }
+      if (index < 0) fail(404, 'Item not found')
+      if (method === 'DELETE') {
+        data[collection].splice(index, 1)
+        return { ok: true }
+      }
+      const item = data[collection][index]
+      if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== item.updatedAt) fail(409, 'Note changed since last sync. Reload before editing.')
+      Object.assign(item, fields, { updatedAt: new Date(Math.max(Date.now(), Date.parse(item.updatedAt) + 1)).toISOString() })
+      return { [toolNames[collection]]: publicRecord(item) }
+    }, true)
+  }
   fail(404, 'API endpoint not found')
 })
+
+export { authenticated, mutationGuard, body, fail, publicUser }
