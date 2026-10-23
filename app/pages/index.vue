@@ -1,4 +1,5 @@
 <script setup>
+import AppPreviews from '~/components/AppPreviews.vue';
 import GrowTogether from '~/components/GrowTogether.vue';
 import SiteHeader from '~/components/SiteHeader.vue';
 import {
@@ -231,6 +232,8 @@ onUnmounted(() => {
                     and your farm running well, in one simple app.
                 </p>
             </div>
+
+            <AppPreviews />
 
             <!-- Feature grid -->
             <div
