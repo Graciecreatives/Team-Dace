@@ -32,7 +32,8 @@ Provider requests may incur charges. The app does not sign up, top up, purchase 
 - Planning indicators use daily maximum temperature at least 35°C or precipitation at least 20 mm. They are illustrative planning thresholds, not crop-specific safety limits or a guarantee that other hazards are absent.
 - Weather is cached server-side for 15 minutes by rounded area. No forecast is fabricated on provider failure.
 - Farmer discovery is hidden by default. Publishing requires a public farm name, rounded coordinates, and explicit consent. Location permission is optional, with manual coordinate entry available.
-- Map iframes load only after an explicit map action. OpenStreetMap then receives the selected rounded area and browser network information. Maps show one selected area at a time, not exact multi-farm boundaries.
+- Interactive Leaflet maps load only after an explicit map action. The configured tile provider (OpenStreetMap by default) receives the viewed map areas and browser network information. Green markers represent opted-in farmers, grouped when rounded coordinates overlap. Select a marker, choose a farmer, and request a connection. Contacts remain hidden until acceptance. No public farmer samples or exact farm boundaries are invented.
+- OpenStreetMap tiles are best-effort, require visible attribution, and must not be bulk downloaded or prefetched. For production traffic, configure an appropriate tile service using `NUXT_PUBLIC_MAP_TILE_URL` (HTTPS template containing `{z}`, `{x}`, `{y}`) and `NUXT_PUBLIC_MAP_ATTRIBUTION`. Public configuration must not contain secret API keys. The list and connection actions remain available if tiles fail.
 - Profile hiding removes its shared coordinates, introduction, and contact details. Blocking hides both farmers from each other and prevents connection access. Historical connection records remain stored without revealing a hidden profile's current contact.
 
 ## Offline boundaries
