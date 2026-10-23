@@ -1,4 +1,6 @@
 <script setup>
+import ContactSection from '~/components/ContactSection.vue';
+import SiteFooter from '~/components/SiteFooter.vue';
 import HowItWorks from '~/components/HowItWorks.vue';
 import FarmToolkit from '~/components/FarmToolkit.vue';
 import AppPreviews from '~/components/AppPreviews.vue';
@@ -134,6 +136,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <div>
     <main id="home" class="flex min-h-screen flex-col">
         <!-- Marquee -->
         <div
@@ -241,7 +244,10 @@ onUnmounted(() => {
         </section>
         <GrowTogether />
         <HowItWorks />
+        <ContactSection />
     </main>
+    <SiteFooter />
+  </div>
 </template>
 
 <style scoped>
