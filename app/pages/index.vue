@@ -1,4 +1,5 @@
 <script setup>
+import GrowTogether from '~/components/GrowTogether.vue';
 import SiteHeader from '~/components/SiteHeader.vue';
 import {
     BadgeCheck,
@@ -254,6 +255,7 @@ onUnmounted(() => {
                 </div>
             </div>
         </section>
+        <GrowTogether />
     </main>
 </template>
 
