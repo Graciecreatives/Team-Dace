@@ -239,8 +239,8 @@ onUnmounted(() => {
 
             <FarmToolkit :features="features" />
         </section>
-        <HowItWorks />
         <GrowTogether />
+        <HowItWorks />
     </main>
 </template>
 
