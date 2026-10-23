@@ -1,5 +1,5 @@
 <script setup>
-import { Sprout, Camera, Mic, Bell, Users, BadgeCheck, ArrowUpRight, Check, Leaf, Plus, Home, ClipboardList, Pause, Play, Volume2 } from 'lucide-vue-next'
+import { Sprout, Camera, Mic, Bell, Users, BadgeCheck, ArrowUpRight, Check, Leaf, Plus, Home, ClipboardList, Volume2 } from 'lucide-vue-next'
 const paused = ref(false)
 const screens = [
   { title: 'A little clarity. A healthier farm.', name: 'Photo diagnosis', icon: Camera, theme: 'mint', type: 'diagnosis' },
@@ -13,12 +13,7 @@ const screens = [
 
 <template>
   <div class="preview-showcase mt-10 sm:mt-14" aria-label="FarmBuddy app concept previews">
-    <div class="mx-auto mb-4 flex max-w-6xl items-center justify-between gap-4 px-5 sm:px-6">
-      <p class="text-xs font-semibold uppercase tracking-widest text-[#066136]">A look inside FarmBuddy · Concept previews</p>
-      <button type="button" class="inline-flex shrink-0 items-center gap-2 rounded-full border border-[#066136]/20 px-3 py-2 text-xs font-semibold text-[#066136] hover:bg-[#066136]/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4" :aria-pressed="paused" @click="paused = !paused">
-        <component :is="paused ? Play : Pause" :size="14" aria-hidden="true" />{{ paused ? 'Play previews' : 'Pause previews' }}
-      </button>
-    </div>
+    <button type="button" class="sr-only focus:not-sr-only focus:mb-4 focus:ml-5 focus:rounded-full focus:border focus:border-[#066136] focus:px-4 focus:py-2 focus:text-sm focus:text-[#066136]" :aria-pressed="paused" @click="paused = !paused">{{ paused ? 'Resume app preview animation' : 'Pause app preview animation' }}</button>
     <div class="preview-viewport" :class="{ 'is-paused': paused }">
       <div class="preview-track">
         <div v-for="copy in 2" :key="copy" class="preview-group" :aria-hidden="copy === 2 ? 'true' : undefined" :inert="copy === 2 ? true : undefined">
