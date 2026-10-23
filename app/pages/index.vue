@@ -206,13 +206,13 @@ onUnmounted(() => {
                         class="mt-10 grid w-full grid-cols-1 gap-4 sm:flex sm:justify-center sm:gap-4"
                     >
                         <a
-                            href="#"
+                            href="/register"
                             class="flex justify-center rounded-full bg-[#066136] px-9 py-4 text-base font-semibold text-white transition hover:opacity-90"
                         >
                             Start Free
                         </a>
                         <a
-                            href="#"
+                            href="#about"
                             class="flex justify-center rounded-full bg-[#F9C23C] px-9 py-4 text-base font-semibold text-[#066136] transition hover:opacity-90"
                         >
                             About us
