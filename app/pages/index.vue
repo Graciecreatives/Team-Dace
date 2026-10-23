@@ -236,25 +236,35 @@ onUnmounted(() => {
             <AppPreviews />
 
             <!-- Feature grid -->
-            <div
-                class="mx-auto mt-10 grid max-w-6xl grid-cols-1 gap-5 px-5 sm:mt-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4"
-            >
-                <div
-                    v-for="f in features"
-                    :key="f.title"
-                    class="flex flex-col items-center rounded-2xl border border-slate-900/[0.07] bg-white p-5 text-center shadow-[0_2px_12px_rgba(43,43,43,0.05)]"
-                >
-                    <span
-                        class="flex h-12 w-12 items-center justify-center rounded-full bg-[#066136]/10 text-[#F9C23C]"
+            <div class="mx-auto mt-12 max-w-6xl px-5 sm:mt-16 sm:px-6">
+                <div class="mb-7 flex flex-col justify-between gap-3 border-b border-[#066136]/15 pb-6 sm:flex-row sm:items-end">
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-[0.18em] text-[#066136]">Built around your farm</p>
+                        <h3 class="mt-2 text-2xl font-bold tracking-tight text-[#163D2A]">Less guesswork. More growing.</h3>
+                    </div>
+                    <p class="max-w-xs text-sm leading-relaxed text-slate-500">Eight connected tools. One trusted farming companion.</p>
+                </div>
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <article
+                        v-for="(f, index) in features"
+                        :key="f.title"
+                        class="feature-card group relative flex min-h-[260px] flex-col overflow-hidden rounded-3xl border p-6 transition-[box-shadow,border-color,transform] duration-300 hover:-translate-y-1 motion-reduce:transform-none motion-reduce:transition-none"
+                        :class="index === 0 || index === 7
+                            ? 'border-[#075735] bg-[#064B30] text-white shadow-[0_8px_24px_rgba(6,75,48,0.12)] hover:shadow-[0_14px_32px_rgba(6,75,48,0.2)]'
+                            : 'border-[#DDE5DC] bg-[#FAFBF7] text-[#173D2B] hover:border-[#80A48A] hover:shadow-[0_12px_28px_rgba(6,75,48,0.08)]'"
                     >
-                        <component :is="f.icon" :size="22" aria-hidden="true" />
-                    </span>
-                    <h3 class="mt-4 text-base font-semibold text-slate-900">
-                        {{ f.title }}
-                    </h3>
-                    <p class="mt-2 text-sm leading-relaxed text-slate-600">
-                        {{ f.desc }}
-                    </p>
+                        <div class="flex items-start justify-between">
+                            <span class="flex h-12 w-12 items-center justify-center rounded-2xl border"
+                                :class="index === 0 || index === 7 ? 'border-white/10 bg-[#F9C23C] text-[#064B30]' : 'border-[#066136]/10 bg-white text-[#066136]'">
+                                <component :is="f.icon" :size="24" :stroke-width="1.7" aria-hidden="true" />
+                            </span>
+                            <span class="text-xs font-semibold tabular-nums" :class="index === 0 || index === 7 ? 'text-white/50' : 'text-[#6B8272]'" aria-hidden="true">0{{ index + 1 }}</span>
+                        </div>
+                        <p class="mb-2 mt-6 text-[10px] font-bold uppercase tracking-[0.15em]" :class="index === 0 || index === 7 ? 'text-[#F9C23C]' : 'text-[#52715D]'">{{ ['Understand your farm', 'Speak naturally', 'Advice that fits', 'Know your numbers', 'Stay one step ahead', 'Grow your circle', 'Protect your farm', 'Build your credibility'][index] }}</p>
+                        <h3 class="text-lg font-bold tracking-tight">{{ f.title }}</h3>
+                        <p class="mt-3 text-sm leading-6" :class="index === 0 || index === 7 ? 'text-white/80' : 'text-[#57675C]'">{{ f.desc }}</p>
+                        <div class="mt-auto pt-6" aria-hidden="true"><div class="h-0.5 w-8 rounded-full transition-all duration-300 group-hover:w-16 motion-reduce:transition-none" :class="index === 0 || index === 7 ? 'bg-[#F9C23C]' : 'bg-[#066136]/30'" /></div>
+                    </article>
                 </div>
             </div>
         </section>

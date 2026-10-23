@@ -23,9 +23,9 @@ const screens = [
       <div class="preview-track">
         <div v-for="copy in 2" :key="copy" class="preview-group" :aria-hidden="copy === 2 ? 'true' : undefined" :inert="copy === 2 ? true : undefined">
           <article v-for="screen in screens" :key="screen.type" class="preview-card" :class="`theme-${screen.theme}`">
-            <div class="mb-3 flex items-center gap-1.5 text-[11px] font-extrabold tracking-tight text-[#066136]"><Sprout :size="15" aria-hidden="true" />FarmBuddy</div>
-            <h3 class="max-w-[220px] text-2xl font-extrabold leading-tight tracking-tight text-[#173D2B]">{{ screen.title }}</h3>
-            <p class="mt-2 text-xs font-medium text-[#46634E]">{{ screen.name }}</p>
+            <div class="preview-brand mb-3 flex items-center gap-1.5 text-[11px] font-extrabold tracking-tight"><Sprout :size="15" aria-hidden="true" />FarmBuddy</div>
+            <h3 class="preview-headline max-w-[240px] text-[27px] font-extrabold leading-[1.15] tracking-tight">{{ screen.title }}</h3>
+            <p class="preview-label mt-3 inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wider">{{ screen.name }}</p>
             <div class="preview-phone mt-6 text-[#273D30]">
               <div class="flex items-center justify-between px-4 pb-3 pt-2 text-[8px] font-bold"><span>9:41</span><span class="phone-notch" /><span>▮▮▮ ▰</span></div>
               <div class="px-4">
@@ -34,8 +34,8 @@ const screens = [
                 <h4 class="mt-1 text-sm font-bold">{{ screen.name }}</h4>
 
                 <template v-if="screen.type === 'diagnosis'">
-                  <div class="relative mt-3 flex h-28 items-center justify-center overflow-hidden rounded-xl bg-[#DDEBCB]">
-                    <Leaf :size="78" :stroke-width="1.2" class="-rotate-12 fill-[#63A45C] text-[#287438]" />
+                  <div class="relative mt-3 flex h-28 items-center justify-center overflow-hidden rounded-xl bg-[#0C633C]">
+                    <Leaf :size="78" :stroke-width="1.2" class="-rotate-12 fill-[#7CD74F] text-[#D3F4A7]" />
                     <span class="absolute inset-4 rounded-lg border border-white/80" /><span class="absolute bottom-2 right-2 rounded-full bg-white p-1.5 text-[#066136]"><Camera :size="13" /></span>
                   </div>
                   <div class="mt-3 rounded-xl border border-[#066136]/15 bg-[#EFF6EA] p-3"><p class="flex items-center gap-1 text-[10px] font-bold text-[#066136]"><Check :size="12" />Photo received</p><p class="mt-1 text-[9px] leading-relaxed">Let’s take a closer look at your crop.</p></div>
@@ -70,7 +70,7 @@ const screens = [
               </div>
               <div class="absolute inset-x-0 bottom-0 flex justify-around border-t border-slate-100 bg-white px-4 py-3 text-[#066136]"><Home :size="15" /><Camera :size="15" /><Plus :size="15" /><ClipboardList :size="15" /><Users :size="15" /></div>
             </div>
-            <div class="mt-4 flex items-center gap-2 text-[10px] font-semibold text-[#355441]"><component :is="screen.icon" :size="14" />Made for your everyday farm life <ArrowUpRight :size="13" class="ml-auto" /></div>
+            <div class="preview-caption mt-5 flex items-center gap-2 text-[10px] font-semibold"><component :is="screen.icon" :size="14" />Made for your everyday farm life <ArrowUpRight :size="13" class="ml-auto" /></div>
           </article>
         </div>
       </div>
@@ -82,15 +82,19 @@ const screens = [
 .preview-viewport { overflow: hidden; padding: 12px 0 28px; mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); }
 .preview-track { display: flex; width: max-content; animation: preview-scroll 65s linear infinite; }
 .preview-group { display: flex; flex-shrink: 0; gap: 24px; padding-right: 24px; }
-.preview-card { width: 290px; flex-shrink: 0; border: 1px solid rgba(6,97,54,.08); border-radius: 30px; padding: 25px 25px 20px; overflow: hidden; }
-.theme-mint { background: #E4EFDE; }
-.theme-sand { background: #FCEDD3; }
-.theme-pink { background: #F5E5DE; }
-.theme-lilac { background: #ECE8F4; }
-.preview-phone { position: relative; height: 358px; overflow: hidden; border: 5px solid #203C2C; border-bottom-width: 7px; border-radius: 27px 27px 20px 20px; background: #fff; box-shadow: 0 12px 24px rgba(18,57,33,.14); }
+.preview-card { position: relative; width: 290px; flex-shrink: 0; border: 1px solid rgba(255,255,255,.15); border-radius: 30px; padding: 25px 25px 20px; overflow: hidden; box-shadow: 0 10px 24px rgba(10,35,24,.12); }
+.preview-brand { color: #FFE39C; }
+.preview-headline { min-height: 94px; color: #fff; text-wrap: balance; }
+.preview-label { color: #fff; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.08); }
+.preview-caption { color: #fff; }
+.theme-mint { background: radial-gradient(ellipse at 100% 100%, #188D59 0%, transparent 65%), #03482F; }
+.theme-sand { background: radial-gradient(ellipse at 100% 100%, #B85A17 0%, transparent 65%), #713515; }
+.theme-pink { background: radial-gradient(ellipse at 100% 100%, #A93F64 0%, transparent 65%), #54243C; }
+.theme-lilac { background: radial-gradient(ellipse at 100% 100%, #7160B5 0%, transparent 65%), #352961; }
+.preview-phone { position: relative; height: 540px; overflow: hidden; border: 5px solid #14271D; border-bottom-width: 7px; border-radius: 27px 27px 20px 20px; background: #fff; box-shadow: 0 22px 32px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.25); }
 .phone-notch { width: 62px; height: 11px; margin-top: -8px; border-radius: 0 0 9px 9px; background: #203C2C; }
 .is-paused .preview-track, .preview-viewport:hover .preview-track { animation-play-state: paused; }
 @keyframes preview-scroll { to { transform: translateX(-50%); } }
-@media (min-width: 640px) { .preview-card { width: 320px; padding: 28px 30px 22px; } .preview-phone { height: 375px; } .preview-group { gap: 32px; padding-right: 32px; } }
+@media (min-width: 640px) { .preview-card { width: 320px; padding: 28px 30px 22px; } .preview-phone { height: 510px; } .preview-group { gap: 32px; padding-right: 32px; } }
 @media (prefers-reduced-motion: reduce) { .preview-viewport { overflow-x: auto; mask-image: none; } .preview-track { animation: none; } .preview-group[aria-hidden='true'] { display: none; } }
 </style>
