@@ -37,7 +37,7 @@ const income = computed(() => records.value.filter(r => r.category === 'income')
 const expenses = computed(() => records.value.filter(r => r.category === 'expense').reduce((sum, r) => sum + Number(r.amount || 0), 0))
 const pending = computed(() => reminders.value.filter(r => !r.completed).sort((a, b) => a.date.localeCompare(b.date)))
 const recent = computed(() => [...records.value].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
-const money = value => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(value)
+const money = value => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 2 }).format(value)
 const displayDate = value => new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 const initials = computed(() => (user.value.name || 'Farmer').split(' ').filter(Boolean).slice(0, 2).map(n => n[0]).join('').toUpperCase())
 function chooseSection(id) { section.value = id; mobileMenu.value = false; feedback.value = ''; error.value = '' }
@@ -88,7 +88,7 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
 
 <template>
   <div class="dashboard min-h-screen bg-[#F5F6F0] text-[#193D2B]">
-    <aside class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-[#DCE5D8] bg-[#FAFBF7] px-5 py-7 transition-transform lg:translate-x-0 lg:visible" :class="mobileMenu ? 'visible translate-x-0' : 'invisible -translate-x-full'">
+    <aside class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto border-r border-[#DCE5D8] bg-[#FAFBF7] px-5 py-7 transition-transform lg:translate-x-0 lg:visible" :class="mobileMenu ? 'visible translate-x-0' : 'invisible -translate-x-full'">
       <NuxtLink to="/" class="mb-10 flex items-center gap-2.5 px-2 text-2xl font-extrabold tracking-tight text-[#066136]"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#066136] text-[#F9C23C]"><Sprout :size="24" aria-hidden="true" /></span>FarmBuddy<span class="-ml-2 text-[#C49C23]">.</span></NuxtLink>
       <p class="px-4 text-[10px] font-bold uppercase tracking-[0.2em] text-[#7C8D7A]">Your workspace</p>
       <nav class="mt-4 space-y-2" aria-label="Dashboard navigation"><button v-for="item in nav" :key="item.id" type="button" class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition" :class="section === item.id ? 'bg-[#066136] text-white shadow-md shadow-[#066136]/10' : 'text-[#62745F] hover:bg-[#EDF1E6]'" :aria-current="section === item.id ? 'page' : undefined" @click="chooseSection(item.id)"><component :is="item.icon" :size="19" aria-hidden="true" />{{ item.label }}<span v-if="item.id === 'reminders' && pending.length" class="ml-auto rounded-md bg-[#F9C23C] px-1.5 py-0.5 text-[10px] text-[#064B32]">{{ pending.length }}</span></button></nav>
