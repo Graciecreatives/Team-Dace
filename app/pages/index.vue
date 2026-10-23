@@ -127,7 +127,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="flex min-h-screen flex-col">
+  <div>
+    <SiteHeader />
+    <main id="home" class="flex min-h-screen flex-col">
     <!-- Marquee -->
     <div class="shrink-0 overflow-hidden bg-[#F9C23C] py-2.5 text-[#066136]">
       <div class="fb-marquee flex w-max">
@@ -149,7 +151,7 @@ onUnmounted(() => {
 
     <!-- Hero -->
     <section
-      class="relative isolate flex min-h-[calc(100vh-40px)] flex-1 flex-col justify-center overflow-hidden bg-[#F7F4EF] text-slate-900"
+      class="relative isolate flex min-h-[calc(100svh-112px)] flex-1 flex-col justify-center overflow-hidden bg-[#F7F4EF] text-slate-900"
     >
       <!-- Grid background -->
       <div
@@ -180,15 +182,15 @@ onUnmounted(() => {
             for every crop and every bird. Snap a photo or send a voice note, and
             get clear advice, simple records, and real expert help from FarmBuddy AI
           </p>
-          <div class="mt-10 grid w-full grid-cols-1 gap-4 sm:flex sm:justify-between sm:gap-5">
+          <div class="mt-8 grid w-full grid-cols-1 gap-3 sm:flex sm:justify-center sm:gap-4">
             <a
-              href="#"
+              href="/register"
               class="flex justify-center rounded-full bg-[#066136] px-9 py-4 text-base font-semibold text-white transition hover:opacity-90"
             >
               Start Free
             </a>
             <a
-              href="#"
+              href="#about"
               class="flex justify-center rounded-full bg-[#F9C23C] px-9 py-4 text-base font-semibold text-[#066136] transition hover:opacity-90"
             >
               About us
@@ -199,7 +201,7 @@ onUnmounted(() => {
     </section>
 
     <!-- Value proposition -->
-    <section class="bg-white py-16 sm:py-24">
+    <section id="about" class="scroll-mt-6 bg-white py-16 sm:py-24">
       <div class="mx-auto max-w-3xl px-5 text-center sm:px-6">
         <h2 class="text-2xl font-bold tracking-tight text-[#066136] sm:text-3xl lg:text-4xl">
           Everything your farm needs, in one app
@@ -229,7 +231,21 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
+    <section id="how-it-works" class="bg-[#F7F4EF] px-5 py-16 text-center">
+      <h2 class="text-3xl font-bold text-[#066136]">How it works</h2>
+      <div class="mx-auto mt-8 grid max-w-5xl gap-6 md:grid-cols-3">
+        <article v-for="(step, index) in ['Share a photo or voice note about your farm.', 'Answer a few questions to get tailored guidance.', 'Save records and set reminders to stay on track.']" :key="step" class="rounded-2xl border border-[#066136]/10 bg-white p-6">
+          <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#F9C23C] font-bold text-[#066136]">{{ index + 1 }}</span>
+          <p class="mt-4 leading-relaxed text-slate-600">{{ step }}</p>
+        </article>
+      </div>
+    </section>
+    <section id="contact" class="bg-[#066136] px-5 py-14 text-center text-white">
+      <h2 class="text-3xl font-bold">Contact FarmBuddy</h2>
+      <p class="mt-4 text-white/80">Contact details will be available here soon.</p>
+    </section>
   </main>
+  </div>
 </template>
 
 <style scoped>
