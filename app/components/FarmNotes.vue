@@ -46,7 +46,7 @@ async function sync() {
     const data = await $fetch('/api/tools', { signal })
     if (current()) { notes.value = mergeServerNotes(notes.value, data.notes || []); persist() }
   } catch { if (token === generation) error.value = 'Sync failed. Your notes are retained. Reconnect and retry.' }
-  finally { if (token === generation) busy.value = false }
+  finally { if (token === generation) { busy.value = false; if (mounted && online.value && !error.value && notes.value.some(note => note.status === 'pending')) nextTick(() => { if (mounted && token === generation) sync() }) } }
 }
 function saveNote() {
   if (!owner.value || !title.value.trim() || !body.value.trim()) return

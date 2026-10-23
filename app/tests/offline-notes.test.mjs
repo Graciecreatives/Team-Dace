@@ -56,6 +56,12 @@ test('unit: merging does not erase missing or pending local notes', () => {
   assert.equal(merged[0].status, 'pending')
   assert.equal(mergeServerNotes(notes, []).length, 1)
 })
+test('unit: server deletion removes synced copies but retains pending drafts', () => {
+  const local = [{ ...note, status: 'synced' }, { ...note, id: 'pending-id', status: 'pending' }]
+  const merged = mergeServerNotes(local, [])
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].id, 'pending-id')
+})
 test('unit: transcript extraction never invents money or category', () => {
   const draft = transcriptDraft('Sold 4 goats for 2000. Buyer collected today.')
   assert.equal(draft.category, 'activity')

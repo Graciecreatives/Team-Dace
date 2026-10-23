@@ -21,7 +21,8 @@ export function addNote(notes, note) {
   return notes.some(n => n.id === note.id) ? notes : [{ ...note, status: 'pending' }, ...notes]
 }
 export function mergeServerNotes(local, remote) {
-  const result = [...local]
+  const remoteIds = new Set(remote.filter(valid).map(note => note.id))
+  const result = local.filter(note => note.status !== 'synced' || remoteIds.has(note.id))
   for (const note of remote.filter(valid)) {
     const index = result.findIndex(n => n.id === note.id)
     if (index < 0) result.push({ ...note, status: 'synced' })
