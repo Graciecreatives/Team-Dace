@@ -77,7 +77,7 @@ const screens = [
 .preview-viewport { overflow: hidden; padding: 12px 0 28px; mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); }
 .preview-track { display: flex; width: max-content; animation: preview-scroll 65s linear infinite; }
 .preview-group { display: flex; flex-shrink: 0; gap: 24px; padding-right: 24px; }
-.preview-card { position: relative; width: 290px; flex-shrink: 0; border: 1px solid rgba(255,255,255,.15); border-radius: 30px; padding: 25px 25px 20px; overflow: hidden; box-shadow: 0 10px 24px rgba(10,35,24,.12); }
+.preview-card { position: relative; width: 320px; flex-shrink: 0; border: 1px solid rgba(255,255,255,.15); border-radius: 30px; padding: 25px 25px 20px; overflow: hidden; box-shadow: 0 10px 24px rgba(10,35,24,.12); }
 .preview-brand { color: #FFE39C; }
 .preview-headline { min-height: 94px; color: #fff; text-wrap: balance; }
 .preview-label { color: #fff; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.08); }
@@ -90,6 +90,6 @@ const screens = [
 .phone-notch { width: 62px; height: 11px; margin-top: -8px; border-radius: 0 0 9px 9px; background: #203C2C; }
 .is-paused .preview-track, .preview-viewport:hover .preview-track { animation-play-state: paused; }
 @keyframes preview-scroll { to { transform: translateX(-50%); } }
-@media (min-width: 640px) { .preview-card { width: 320px; padding: 28px 30px 22px; } .preview-phone { height: 510px; } .preview-group { gap: 32px; padding-right: 32px; } }
+@media (min-width: 640px) { .preview-card { width: 360px; padding: 28px 30px 22px; } .preview-phone { height: 510px; } .preview-group { gap: 32px; padding-right: 32px; } }
 @media (prefers-reduced-motion: reduce) { .preview-viewport { overflow-x: auto; mask-image: none; } .preview-track { animation: none; } .preview-group[aria-hidden='true'] { display: none; } }
 </style>
