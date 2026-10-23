@@ -1,0 +1,63 @@
+<script setup>
+import { ArrowRight, Eye, EyeOff } from 'lucide-vue-next'
+import AuthShell from '~/components/AuthShell.vue'
+
+useHead({ title: 'Welcome back | FarmBuddy' })
+const email = ref('')
+const password = ref('')
+const showPassword = ref(false)
+const loading = ref(false)
+const error = ref('')
+const errorBox = ref(null)
+const requestFetch = useRequestFetch()
+let currentUser = null
+try {
+  const response = await requestFetch('/api/auth/me')
+  currentUser = response?.user
+} catch {
+  // An unavailable or unauthenticated session must not prevent signing in.
+}
+if (currentUser) await navigateTo('/dashboard', { replace: true })
+
+async function submit() {
+  if (loading.value) return
+  error.value = ''
+  loading.value = true
+  try {
+    await $fetch('/api/auth/login', {
+      method: 'POST',
+      body: { email: email.value.trim(), password: password.value },
+    })
+    await navigateTo('/dashboard')
+  } catch (cause) {
+    error.value = cause?.data?.message || cause?.data?.statusMessage || 'Unable to sign in. Please check your details and try again.'
+    await nextTick()
+    errorBox.value?.focus()
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <AuthShell>
+    <h1 class="auth-title">Good to see you again.</h1>
+    <p class="auth-description">Sign in to FarmBuddy. Let's pick up where your farm left off.</p>
+    <form class="auth-form" :aria-busy="loading" @submit.prevent="submit">
+      <div v-if="error" ref="errorBox" class="error-message" role="alert" tabindex="-1">{{ error }}</div>
+      <div class="field">
+        <label for="login-email">Email address</label>
+        <input id="login-email" v-model="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required :readonly="loading" />
+      </div>
+      <div class="field">
+        <label for="login-password">Password</label>
+        <div class="password-wrap">
+          <input id="login-password" v-model="password" name="password" :type="showPassword ? 'text' : 'password'" autocomplete="current-password" placeholder="Enter your password" required :readonly="loading" />
+          <button class="reveal" type="button" :aria-label="showPassword ? 'Hide password' : 'Show password'" :aria-pressed="showPassword" aria-controls="login-password" @click="showPassword = !showPassword"><component :is="showPassword ? EyeOff : Eye" :size="19" aria-hidden="true" /></button>
+        </div>
+      </div>
+      <button class="submit-button" type="submit" :disabled="loading"><span aria-live="polite">{{ loading ? 'Signing in…' : 'Sign in' }}</span><ArrowRight v-if="!loading" :size="18" aria-hidden="true" /></button>
+    </form>
+    <p class="switch-link">New to FarmBuddy? <NuxtLink to="/register">Create an account</NuxtLink></p>
+  </AuthShell>
+</template>
