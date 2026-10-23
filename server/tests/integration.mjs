@@ -51,7 +51,8 @@ try {
   assert.match(first.headers.get('set-cookie'), /HttpOnly/i)
   assert.match(first.headers.get('set-cookie'), /SameSite=Lax/i)
   assert.match(first.headers.get('set-cookie'), /Secure/i)
-  assert.deepEqual(Object.keys(first.payload.user).sort(), ['id', 'name', 'email', 'farmName', 'farmType'].sort())
+  assert.deepEqual(Object.keys(first.payload.user).sort(), ['id', 'name', 'email', 'farmName', 'farmType', 'onboardingCompleted', 'location', 'mainEnterprises', 'preferredLanguage'].sort())
+  assert.equal(first.payload.user.onboardingCompleted, false)
   assert.equal(first.payload.user.email, 'test@example.test')
   await request('/api/auth/register', 'POST', account, undefined, 409)
   await request('/api/auth/login', 'POST', { email: account.email, password: 'wrong' }, undefined, 401)
@@ -59,6 +60,43 @@ try {
   assert.equal((await request('/api/auth/me', 'GET', undefined, a)).payload.user.id, first.payload.user.id)
   assert.deepEqual((await request('/api/farm', 'GET', undefined, a)).payload, { records: [], reminders: [] })
   const b = (await request('/api/auth/register', 'POST', { ...account, email: 'second@example.test' })).cookie
+  const profile = { farmName: ' New Farm ', farmType: 'poultry', onboardingCompleted: true, location: ' Accra ', mainEnterprises: ' Hens, ducks ', preferredLanguage: ' English ' }
+  await request('/api/farm/profile', 'PATCH', profile, undefined, 401)
+  await request('/api/farm/profile', 'PATCH', profile, a, 403, { Origin: 'https://evil.example' })
+  for (const key of ['farmName', 'farmType', 'onboardingCompleted']) {
+    const missing = { ...profile }
+    delete missing[key]
+    await request('/api/farm/profile', 'PATCH', missing, a, 400)
+  }
+  for (const invalid of [
+    { farmName: '' }, { farmName: ' '.repeat(10) }, { farmName: 'x'.repeat(151) },
+    { farmType: 'fish' }, { farmType: 'Crops' }, { farmType: null },
+    { onboardingCompleted: false }, { onboardingCompleted: 'true' },
+    { location: '<script>' }, { location: 'x'.repeat(201) }, { location: 2 }, { location: '\nAccra' },
+    { mainEnterprises: 'x'.repeat(501) }, { preferredLanguage: 'x'.repeat(81) },
+    { preferredLanguage: null }, { userId: first.payload.user.id }, { email: 'stolen@example.test' },
+  ]) await request('/api/farm/profile', 'PATCH', { ...profile, ...invalid }, a, 400)
+  assert.equal((await request('/api/auth/me', 'GET', undefined, a)).payload.user.onboardingCompleted, false)
+  const saved = (await request('/api/farm/profile', 'PATCH', profile, a)).payload.user
+  assert.equal(saved.farmType, 'livestock')
+  assert.equal(saved.farmName, 'New Farm')
+  assert.equal(saved.location, 'Accra')
+  assert.equal(saved.mainEnterprises, 'Hens, ducks')
+  assert.equal(saved.preferredLanguage, 'English')
+  assert.equal(saved.onboardingCompleted, true)
+  assert.deepEqual((await request('/api/auth/me', 'GET', undefined, a)).payload.user, saved)
+  assert.equal((await request('/api/auth/me', 'GET', undefined, b)).payload.user.onboardingCompleted, false)
+  for (const farmType of ['crops', 'mixed', 'livestock']) {
+    const updated = (await request('/api/farm/profile', 'PATCH', { farmName: 'New Farm', farmType, onboardingCompleted: true }, a)).payload.user
+    assert.equal(updated.farmType, farmType)
+    assert.equal(updated.location, 'Accra', 'Omitted optional fields are preserved')
+  }
+  const persistedProfile = spawnSync(process.execPath, ['--input-type=module', '-e', `import { store } from './server/utils/store.js'; const user = await store(d => d.users.find(u => u.id === '${saved.id}')); if (!user.onboardingCompleted || user.location !== 'Accra' || user.mainEnterprises !== 'Hens, ducks') process.exit(1)`], { env: process.env, encoding: 'utf8' })
+  assert.equal(persistedProfile.status, 0, persistedProfile.stderr)
+  const legacy = JSON.parse(await readFile(process.env.FARMBUDDY_DATA_FILE, 'utf8'))
+  delete legacy.users[1].onboardingCompleted
+  await writeFile(process.env.FARMBUDDY_DATA_FILE, JSON.stringify(legacy))
+  assert.equal((await request('/api/auth/me', 'GET', undefined, b)).payload.user.onboardingCompleted, false)
   const record = (await request('/api/farm/records', 'POST', { title: 'Harvest', category: 'income', amount: 42.5, note: 'Test only' }, a)).payload.record
   assert.deepEqual(Object.keys(record).sort(), ['id', 'title', 'category', 'amount', 'note', 'createdAt'].sort())
   assert.equal((await request('/api/farm/records', 'POST', { title: 'Work', category: 'activity' }, a)).payload.record.amount, null)

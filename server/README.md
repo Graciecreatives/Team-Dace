@@ -12,13 +12,18 @@ All bodies below are JSON objects (`Content-Type: application/json`). Successful
 | POST | `/api/auth/login` | `{email,password}` | `{user}` and session cookie |
 | GET | `/api/auth/me` | none | `{user}` or 401 |
 | POST | `/api/auth/logout` | none | `{ok:true}` and cleared cookie |
+| PATCH | `/api/farm/profile` | `{farmName,farmType,onboardingCompleted:true,location?,mainEnterprises?,preferredLanguage?}` | `{user}` |
 | GET | `/api/farm` | none | `{records:[],reminders:[]}` for current user |
 | POST | `/api/farm/records` | `{title,category,amount?,note?}` | `{record}` |
 | DELETE | `/api/farm/records/:id` | none | `{ok:true}` |
 | POST | `/api/farm/reminders` | `{title,date}` | `{reminder}` |
 | PATCH | `/api/farm/reminders/:id` | `{completed:boolean}` | `{reminder}` |
 
-`user` is exactly `{id,name,email,farmName,farmType}`. Optional farm fields default to empty strings. Email is trimmed and lowercased. Passwords are not trimmed.
+`user` is exactly `{id,name,email,farmName,farmType,onboardingCompleted,location,mainEnterprises,preferredLanguage}`. Optional text fields default to empty strings. Registration always creates `onboardingCompleted:false`. Existing accounts without the flag are exposed as incomplete, with no destructive migration. Email is trimmed and lowercased. Passwords are not trimmed.
+
+`PATCH /api/farm/profile` requires an authenticated session and same-origin JSON mutation protections. It updates only the session owner's profile atomically. Required fields are nonblank `farmName` (maximum 150 characters), `farmType` (`crops`, `livestock`, or `mixed`, with legacy `poultry` accepted and persisted as `livestock`), and the literal boolean `onboardingCompleted:true`. Optional plain-text strings are `location` (200 characters), `mainEnterprises` (500), and `preferredLanguage` (80). Limits apply before trimming. Text is trimmed, angle brackets and control characters are rejected, omitted optional fields preserve stored values, and empty optional strings clear values. Nulls, nonstrings, unknown fields, invalid types, missing required fields, and any completion value other than true return 400. Unauthenticated requests return 401 before body parsing. Success is 200 `{user}` with the persisted public profile. No user ID, email, or ownership field is accepted. Language is profile metadata, not an app translation setting.
+
+Login and registration route incomplete users to `/onboarding`. Completed crops users go to `/dashboard/crops`, livestock (including legacy poultry) to `/dashboard/livestock`, and mixed users to `/dashboard`. Onboarding checks `/api/auth/me` on entry and redirects completed users to the same authoritative destination.
 
 `record` is `{id,title,category,amount,note,createdAt}`. Categories are `income`, `expense`, or `activity`. Omitted amount is `null`, supplied amount must be a finite number from 0 through 1e12. Omitted note defaults to an empty string. `createdAt` is an ISO timestamp.
 

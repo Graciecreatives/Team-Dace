@@ -17,18 +17,22 @@ try {
 } catch {
   // An unavailable or unauthenticated session must not prevent signing in.
 }
-if (currentUser) await navigateTo('/dashboard', { replace: true })
+function destination(user) {
+  if (user?.onboardingCompleted !== true) return '/onboarding'
+  return user.farmType === 'crops' ? '/dashboard/crops' : ['livestock', 'poultry'].includes(user.farmType) ? '/dashboard/livestock' : '/dashboard'
+}
+if (currentUser) await navigateTo(destination(currentUser), { replace: true })
 
 async function submit() {
   if (loading.value) return
   error.value = ''
   loading.value = true
   try {
-    await $fetch('/api/auth/login', {
+    const response = await $fetch('/api/auth/login', {
       method: 'POST',
       body: { email: email.value.trim(), password: password.value },
     })
-    await navigateTo('/dashboard')
+    await navigateTo(destination(response.user))
   } catch (cause) {
     error.value = cause?.data?.message || cause?.data?.statusMessage || 'Unable to sign in. Please check your details and try again.'
     await nextTick()

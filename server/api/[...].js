@@ -9,7 +9,7 @@ const lifetime = 7 * 24 * 60 * 60
 const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' }
 const digest = value => createHash('sha256').update(value).digest('hex')
 const fail = (statusCode, statusMessage) => { throw createError({ statusCode, statusMessage }) }
-const publicUser = ({ id, name, email, farmName, farmType }) => ({ id, name, email, farmName, farmType })
+const publicUser = ({ id, name, email, farmName, farmType, onboardingCompleted, location = '', mainEnterprises = '', preferredLanguage = '' }) => ({ id, name, email, farmName, farmType, onboardingCompleted: onboardingCompleted === true, location, mainEnterprises, preferredLanguage })
 const publicRecord = ({ userId, ...record }) => record
 const buckets = new Map()
 let activeHashes = 0
@@ -74,6 +74,11 @@ function text(value, label, max, optional = false) {
   if (typeof value !== 'string' || value.length > max || (!optional && !value.trim())) fail(400, `Invalid ${label}`)
   return value.trim()
 }
+function profileText(value, label, max, optional = false) {
+  const result = text(value, label, max, optional)
+  if (typeof value === 'string' && /[<>\u0000-\u001f\u007f]/.test(value)) fail(400, `Invalid ${label} (plain text required)`)
+  return result
+}
 function credentials(input, registering) {
   const email = text(input.email, 'email', 254).toLowerCase()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Invalid email')
@@ -123,7 +128,7 @@ export default defineEventHandler(async event => {
       const hash = (await passwordHash(password, salt)).toString('hex')
       user = await store(data => {
         if (data.users.some(item => item.email === email)) fail(409, 'Email already registered')
-        const created = { id: randomUUID(), name, email, farmName, farmType, salt, passwordHash: hash }
+        const created = { id: randomUUID(), name, email, farmName, farmType, onboardingCompleted: false, location: '', mainEnterprises: '', preferredLanguage: '', salt, passwordHash: hash }
         data.users.push(created)
         newSession(data, created.id, event, rawToken)
         return publicUser(created)
@@ -147,6 +152,25 @@ export default defineEventHandler(async event => {
     await store(data => { data.sessions = data.sessions.filter(item => item.tokenHash !== token(event) && item.expiresAt > Date.now()) }, true)
     deleteCookie(event, cookieName, cookieOptions)
     return { ok: true }
+  }
+  if (method === 'PATCH' && path === '/api/farm/profile') {
+    await store(data => authenticated(data, event))
+    const input = await body(event)
+    const allowed = ['farmName', 'farmType', 'onboardingCompleted', 'location', 'mainEnterprises', 'preferredLanguage']
+    if (Object.keys(input).some(key => !allowed.includes(key))) fail(400, 'Unknown profile field')
+    if (input.onboardingCompleted !== true) fail(400, 'onboardingCompleted must be true')
+    const farmName = profileText(input.farmName, 'farmName', 150)
+    const farmType = input.farmType === 'poultry' ? 'livestock' : input.farmType
+    if (!['crops', 'livestock', 'mixed'].includes(farmType)) fail(400, 'Invalid farmType')
+    const optional = {}
+    for (const [key, max] of [['location', 200], ['mainEnterprises', 500], ['preferredLanguage', 80]]) {
+      if (input[key] !== undefined) optional[key] = profileText(input[key], key, max, true)
+    }
+    return store(data => {
+      const user = authenticated(data, event)
+      Object.assign(user, optional, { farmName, farmType, onboardingCompleted: true })
+      return { user: publicUser(user) }
+    }, true)
   }
   if (method === 'GET' && path === '/api/farm') {
     return store(data => {

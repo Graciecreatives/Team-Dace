@@ -20,18 +20,22 @@ try {
 } catch {
   // A missing session is expected when creating an account.
 }
-if (currentUser) await navigateTo('/dashboard', { replace: true })
+function destination(user) {
+  if (user?.onboardingCompleted !== true) return '/onboarding'
+  return user.farmType === 'crops' ? '/dashboard/crops' : ['livestock', 'poultry'].includes(user.farmType) ? '/dashboard/livestock' : '/dashboard'
+}
+if (currentUser) await navigateTo(destination(currentUser), { replace: true })
 
 async function submit() {
   if (loading.value) return
   error.value = ''
   loading.value = true
   try {
-    await $fetch('/api/auth/register', {
+    const response = await $fetch('/api/auth/register', {
       method: 'POST',
       body: { name: name.value.trim(), email: email.value.trim(), password: password.value, farmName: farmName.value.trim(), farmType: farmType.value },
     })
-    await navigateTo('/dashboard')
+    await navigateTo(destination(response.user))
   } catch (cause) {
     error.value = cause?.data?.message || cause?.data?.statusMessage || 'Unable to create your account. Please try again.'
     await nextTick()
