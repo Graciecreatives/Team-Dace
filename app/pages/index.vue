@@ -128,7 +128,6 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <SiteHeader />
     <main id="home" class="flex min-h-screen flex-col">
     <!-- Marquee -->
     <div class="shrink-0 overflow-hidden bg-[#F9C23C] py-2.5 text-[#066136]">
@@ -151,8 +150,10 @@ onUnmounted(() => {
 
     <!-- Hero -->
     <section
-      class="relative isolate flex min-h-[calc(100svh-112px)] flex-1 flex-col justify-center overflow-hidden bg-[#F7F4EF] text-slate-900"
+      class="relative isolate flex min-h-[calc(100svh-40px)] flex-1 flex-col justify-center overflow-hidden bg-[#F7F4EF] text-slate-900"
     >
+      <SiteHeader class="w-full shrink-0" />
+
       <!-- Grid background -->
       <div
         class="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(rgba(51,47,43,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(51,47,43,0.08)_1px,transparent_1px)] [background-size:48px_48px]"
@@ -162,7 +163,7 @@ onUnmounted(() => {
       <!-- Decorative floating farm visuals -->
       <HeroFloaters />
 
-      <div class="relative z-10 mx-auto flex w-full max-w-6xl flex-col justify-center px-5 py-10 sm:px-6 sm:py-12">
+      <div class="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-5 py-10 sm:px-6 sm:py-12">
         <div class="mx-auto w-full max-w-4xl text-center">
           <p
             class="mb-4 inline-flex max-w-full items-center gap-2 rounded-full border border-slate-900/10 bg-white/60 px-3 py-1.5 text-[11px] font-medium text-slate-700 sm:mb-6 sm:px-4 sm:text-sm"

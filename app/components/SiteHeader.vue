@@ -11,7 +11,7 @@ const links = [
 </script>
 
 <template>
-  <header class="relative z-30 border-b border-[#066136]/10 bg-[#F7F4EF]">
+  <header class="relative z-30 bg-transparent">
     <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-4 sm:px-6">
       <a href="/#home" aria-label="FarmBuddy home" class="flex shrink-0 items-center gap-2 text-xl font-extrabold tracking-tight text-[#066136]">
         <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#066136] text-[#F9C23C]">
