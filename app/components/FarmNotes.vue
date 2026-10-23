@@ -50,6 +50,7 @@ async function sync() {
 }
 function saveNote() {
   if (!owner.value || !title.value.trim() || !body.value.trim()) return
+  if (title.value.trim().length > 160 || body.value.trim().length > 3000) { error.value = 'Use a title up to 160 characters and note text up to 3,000 characters.'; return }
   if (!globalThis.crypto?.randomUUID) { error.value = 'Secure note IDs are unavailable in this browser. Copy your draft and use a secure HTTPS connection.'; return }
   notes.value = addNote(notes.value, { id: crypto.randomUUID(), title: title.value.trim(), body: body.value.trim() })
   persist(); title.value = ''; body.value = ''; feedback.value = 'Note saved on this page. Pending notes sync when connected.'; sync()
@@ -61,7 +62,7 @@ async function deleteNote(note) {
   try {
     await $fetch(`/api/tools/notes/${encodeURIComponent(note.id)}`, { method: 'DELETE' })
     if (token === generation) { notes.value = notes.value.filter(n => n.id !== note.id); persist() }
-  } catch { if (token === generation) error.value = 'Could not delete. The note has been kept. Retry online.' }
+  } catch (cause) { if (token === generation) { if (note.status === 'pending' && (cause?.statusCode === 404 || cause?.response?.status === 404)) { notes.value = notes.value.filter(n => n.id !== note.id); persist(); feedback.value = 'Unsynced note removed from this device.' } else error.value = 'Could not delete. The note has been kept. Retry online.' } }
   finally { if (token === generation) busy.value = false }
 }
 function startListening() {
@@ -85,6 +86,7 @@ watch(record, () => { reviewed.value = false }, { flush: 'sync' })
 async function saveRecord() {
   if (!reviewed.value || !online.value || !owner.value || !record.title.trim() || recordBusy.value) return
   if (record.category !== 'activity' && (!Number.isFinite(Number(record.amount)) || Number(record.amount) <= 0)) { error.value = 'Enter a positive amount for income or expense.'; return }
+  if (record.note.length > 2000) { error.value = 'Shorten the record note to 2,000 characters before saving.'; return }
   const token = generation
   recordBusy.value = true; error.value = ''
   try {
@@ -119,14 +121,14 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
       <p v-if="!supported">Browser dictation is unavailable. Type or paste your transcript below.</p>
       <button v-if="supported" type="button" :disabled="!owner" @click="listening ? stopListening() : startListening()">{{ listening ? 'Stop dictation' : 'Enable microphone and start browser dictation' }}</button>
       <p role="status">{{ listening ? 'Listening. Speak now.' : '' }}</p>
-      <label>Transcript (editable)<textarea v-model="transcript" rows="4" /></label>
+      <label>Transcript (editable)<textarea v-model="transcript" maxlength="2000" rows="4" /></label>
       <button type="button" :disabled="!transcript.trim()" @click="prepareRecord">Prepare record draft</button>
       <form :aria-busy="recordBusy" @submit.prevent="saveRecord">
         <h3>Review record draft</h3><p>No money or currency is inferred. Activity is the default. Financial amounts use your farm account's currency.</p>
         <label>Category<select v-model="record.category"><option value="activity">Activity (no money)</option><option value="income">Income</option><option value="expense">Expense</option></select></label>
         <label>Record title<input v-model="record.title" required maxlength="160"></label>
         <label v-if="record.category !== 'activity'">Amount in account currency<input v-model="record.amount" type="number" required min="0.01" step="0.01" inputmode="decimal"></label>
-        <label>Record note<textarea v-model="record.note" rows="3" /></label>
+        <label>Record note<textarea v-model="record.note" maxlength="2000" rows="3" /></label>
         <label class="check"><input v-model="reviewed" type="checkbox" required> I reviewed the category, title, amount and note.</label>
         <button :disabled="!reviewed || !online || recordBusy || !owner">{{ recordBusy ? 'Saving…' : 'Confirm and save farm record' }}</button>
       </form>
@@ -135,7 +137,7 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
       <form @submit.prevent="saveNote">
         <h3>New note draft</h3><p>Edit before saving. Saved notes are immutable to avoid offline conflicts. To change one, copy it into a new draft and delete the old note online.</p>
         <label>Note title<input v-model="title" required maxlength="160" :disabled="!owner"></label>
-        <label>Note text<textarea v-model="body" required rows="4" :disabled="!owner" /></label>
+        <label>Note text<textarea v-model="body" required maxlength="3000" rows="4" :disabled="!owner" /></label>
         <button :disabled="!owner || !title.trim() || !body.trim()">Save note on device</button>
       </form>
       <button type="button" :disabled="busy || !online || !owner" :aria-busy="busy" @click="sync">{{ busy ? 'Syncing…' : 'Retry / refresh sync' }}</button>

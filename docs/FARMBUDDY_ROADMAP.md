@@ -11,8 +11,8 @@ A voice-first farming companion for crop, livestock, and mixed farmers. Farmers 
 - Returning farmers should land in their own workspace, not repeat onboarding.
 
 ## Current scope and next integrations
-Working foundation: local accounts, onboarding, tailored dashboards, income/expense/activity records, and in-app reminders.
-Planned integrations: real AI conversation, YarnGPT voice, plant/animal image guidance, crop identification, and opt-in nearby-farmer maps. Preview cards must not imply those services are already connected. In-app reminder dates are not yet background notifications.
+Working foundation: local accounts, onboarding, tailored dashboards, income/expense/activity records, in-app reminders, crop/herd registers, inventory indicators, offline note sync, reviewed browser voice-to-record, private expert case summaries, real weather planning, and opt-in farmer discovery with area maps and connection requests.
+Implemented but credentials required: OpenAI chat, plant/animal image guidance, crop identification, and YarnGPT answer playback. Browser dictation is separate from YarnGPT. Referrals are not a verified directory or automatic sending. In-app planning indicators are not background alerts. See `FEATURES_AND_SETUP.md` for configuration, verification, and limits.
 
 ## Recommended additional features
 
