@@ -1,7 +1,12 @@
 <script setup>
 import { prepareProductPhoto } from '../utils/product-photo.js'
 const props = defineProps({ user: { type: Object, required: true } })
-const farm = reactive({ slug: '', name: '', contact: '', contactConsent: false, published: false })
+const emptyFarm = () => ({ slug: '', name: '', contact: '', contactConsent: false, published: false, headline: '', tagline: '', coverImageUrl: '', theme: 'green', showHero: true })
+const farm = reactive(emptyFarm())
+const themes = [{ value: 'green', label: 'Green', color: '#285c34' }, { value: 'teal', label: 'Teal', color: '#16756d' }, { value: 'sage', label: 'Sage', color: '#687c56' }]
+const previewColor = computed(() => themes.find(theme => theme.value === farm.theme)?.color || themes[0].color)
+const ownedCover = computed(() => /^\/api\/product-images\/[a-f0-9-]{36}$/.test(farm.coverImageUrl || ''))
+const coverPicker = ref(null), coverCamera = ref(null)
 const emptyProduct = () => ({ name: '', description: '', price: '', quantity: '', unit: 'kg', currency: 'NGN', imageUrl: '', published: false })
 const draft = reactive(emptyProduct())
 const products = ref([]), busy = ref(false), error = ref(''), feedback = ref(''), origin = ref('')
@@ -11,7 +16,7 @@ const photoPicker = ref(null)
 const cameraPicker = ref(null)
 const ownedPhoto = computed(() => /^\/api\/product-images\/[a-f0-9-]{36}$/.test(draft.imageUrl || ''))
 let uploadController
-async function uploadPhoto(event) {
+async function uploadPhoto(event, target = 'product') {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file || busy.value || uploadingPhoto.value || !loaded.value) return
@@ -26,21 +31,26 @@ async function uploadPhoto(event) {
     if (token !== generation || controller.signal.aborted) return
     preparing = false
     const result = await $fetch('/api/product-images', { method: 'POST', body: photo, headers: { 'Content-Type': 'image/jpeg' }, timeout: 60000, signal: controller.signal })
-    if (token !== generation) return
-    draft.imageUrl = result.imageUrl
-    feedback.value = 'Photo uploaded and GPS metadata removed. Save the product to attach it. It stays private until the product and storefront are published.'
+    if (token !== generation || controller.signal.aborted) return
+    if (target === 'cover') {
+      farm.coverImageUrl = result.imageUrl
+      feedback.value = 'Cover uploaded and GPS metadata removed. Save storefront settings to attach it. It stays private until your farm is published, regardless of published products.'
+    } else {
+      draft.imageUrl = result.imageUrl
+      feedback.value = 'Photo uploaded and GPS metadata removed. Save the product to attach it. It stays private until the product and storefront are published.'
+    }
   } catch (cause) { if (token === generation) error.value = preparing ? (cause?.message || 'Could not prepare this photo. Try another picture.') : (cause?.data?.statusMessage || 'Photo upload was not confirmed. Try again when connected.') }
   finally { if (token === generation) uploadingPhoto.value = false }
 }
 let generation = 0
 const savedFarm = ref({ slug: '', published: false })
 const shareLink = computed(() => origin.value && savedFarm.value.slug ? `${origin.value}/${savedFarm.value.slug}/products` : '')
-function apply(data) { Object.assign(farm, data.farm); savedFarm.value = { ...data.farm }; products.value = data.products; loaded.value = true }
+function apply(data) { Object.assign(farm, emptyFarm(), data.farm); savedFarm.value = { ...data.farm }; products.value = data.products; loaded.value = true }
 async function load() {
   const token = ++generation
   uploadController?.abort(); uploadingPhoto.value = false
   loaded.value = false
-  products.value = []; savedFarm.value = { slug: '', published: false }; Object.assign(farm, { slug: '', name: '', contact: '', contactConsent: false, published: false }); resetDraft()
+  products.value = []; savedFarm.value = { slug: '', published: false }; Object.assign(farm, emptyFarm()); resetDraft()
   busy.value = true; error.value = ''; feedback.value = ''
   try { const data = await $fetch('/api/marketplace', { timeout: 15000 }); if (token === generation) apply(data) }
   catch { if (token === generation) error.value = 'Could not load your catalog. Sign in and retry.' }
@@ -81,6 +91,30 @@ onUnmounted(() => { generation++; uploadController?.abort() })
       <label class="check"><input v-model="farm.contactConsent" type="checkbox"> I consent to displaying this contact publicly. My account email is never filled in automatically.</label>
       <p>To remove contact consent, also clear the contact field.</p>
       <label class="check"><input v-model="farm.published" type="checkbox"> Publish this storefront, its farm name and explicitly published products</label>
+      <details class="appearance">
+        <summary>Store appearance <span>Make it yours</span></summary>
+        <fieldset :disabled="busy || uploadingPhoto || !loaded" class="appearance-fields">
+          <legend class="sr-only">Store appearance</legend>
+          <label>Headline<input v-model="farm.headline" maxlength="80" placeholder="Fresh from our farm"></label>
+          <label>Tagline<input v-model="farm.tagline" maxlength="160" placeholder="A little about what you grow"></label>
+          <fieldset class="theme-options"><legend>Store colors</legend><label v-for="theme in themes" :key="theme.value" class="theme-choice"><input v-model="farm.theme" type="radio" name="store-theme" :value="theme.value"><span class="swatch" :style="{ backgroundColor: theme.color }" aria-hidden="true"></span>{{ theme.label }}</label></fieldset>
+          <label class="check"><input v-model="farm.showHero" type="checkbox"> Show the welcome banner</label>
+          <div class="photo-upload">
+            <h4>Cover photo</h4>
+            <input ref="coverPicker" type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" aria-label="Choose cover photo" @change="uploadPhoto($event, 'cover')">
+            <input ref="coverCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="sr-only" aria-label="Take cover photo" @change="uploadPhoto($event, 'cover')">
+            <div class="photo-actions"><button type="button" @click="coverPicker?.click()">Choose cover photo</button><button type="button" @click="coverCamera?.click()">Take a photo</button><button v-if="farm.coverImageUrl" type="button" @click="farm.coverImageUrl = ''">Clear cover</button></div>
+            <p v-if="uploadingPhoto" role="status">Preparing and uploading photo. Keep this page open.</p>
+            <details><summary>Photo privacy &amp; file requirements</summary><p>JPEG, PNG or WebP, up to 20 MB and 40 megapixels. Your browser reduces photos to 1600 pixels. The server checks photos and removes location metadata. Covers stay private until your farm is published, regardless of published products. Save settings to attach or clear a cover. Clearing only detaches it, not deletes the stored upload.</p></details>
+          </div>
+          <div class="store-preview" :style="{ '--preview-color': previewColor }" aria-label="Store appearance preview">
+            <p class="preview-label">Preview</p>
+            <template v-if="farm.showHero"><img v-if="ownedCover" :src="farm.coverImageUrl" alt="Your uploaded cover photo"><h4>{{ farm.headline || farm.name || 'Your farm' }}</h4><p v-if="farm.tagline">{{ farm.tagline }}</p></template>
+            <p v-else>{{ farm.name || 'Your farm' }} · Welcome banner hidden</p>
+          </div>
+          <p class="save-hint">Preview only. Changes go live after you save settings on a published storefront.</p>
+        </fieldset>
+      </details>
       <button :disabled="busy || uploadingPhoto || !loaded">Save storefront settings</button>
     </form>
     <div v-if="shareLink" class="notice"><label>Storefront link<input :value="shareLink" readonly aria-label="Storefront share link"></label><button type="button" @click="copyLink">Copy link</button> <a v-if="savedFarm.published" :href="shareLink" target="_blank" rel="noopener">Open storefront</a><p v-else>Storefront is unpublished. Visitors will see an unavailable page.</p></div>
@@ -111,4 +145,6 @@ onUnmounted(() => { generation++; uploadController?.abort() })
 .marketplace{max-width:1000px;background:#fff;color:#203c2b;border:1px solid #dbe6db;border-radius:22px;padding:clamp(18px,4vw,36px)}h2{font-size:clamp(1.7rem,4vw,2.5rem);font-weight:800}h3{font-size:1.2rem;font-weight:750;margin-top:20px}h4{font-weight:700}.eyebrow{font-size:.75rem;letter-spacing:.14em;font-weight:750;color:#527153}p{line-height:1.65;margin:10px 0}form{display:grid;gap:14px;margin:24px 0}label{display:grid;gap:7px;font-weight:600}input:not([type=checkbox]),textarea,select{border:1px solid #9bad9b;border-radius:9px;background:white;padding:11px;color:#203c2b;width:100%;min-width:0}.check{display:flex;align-items:start;gap:10px}.check input{margin-top:5px}button{padding:11px 16px;background:#285c34;color:white;border-radius:9px;min-height:44px;font-weight:650}button:disabled{opacity:.5}.notice{background:#f3f5e9;padding:16px;border-radius:12px;overflow-wrap:anywhere}.notice button{margin-top:12px}a{text-decoration:underline}.product-list{display:grid;gap:14px;margin-top:16px}.product-list li{padding:18px;border:1px solid #dae5da;border-radius:12px;overflow-wrap:anywhere}.product-list button{margin-top:8px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}:focus-visible{outline:3px solid #bb8b29;outline-offset:3px}@media(max-width:520px){.fields{grid-template-columns:1fr}.product-list button{display:block;width:100%}}
 
 .photo-upload{padding:18px;border:1px dashed #a9bf98;border-radius:16px;background:#f5f8ed;min-width:0}.photo-upload p{font-size:.85rem}.photo-actions{display:flex;gap:10px;flex-wrap:wrap}.photo-preview{margin:18px 0}.photo-preview img{display:block;width:100%;max-width:280px;height:180px;object-fit:cover;border-radius:12px;margin-bottom:12px}.photo-upload summary{cursor:pointer;margin:16px 0;font-size:.9rem;font-weight:650}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.appearance{border:1px solid #dbe6db;border-radius:18px;padding:16px;background:#fafcf8}.appearance>summary{cursor:pointer;font-weight:750}.appearance>summary span{font-size:.8rem;font-weight:400;margin-left:10px;color:#527153}.appearance-fields{display:grid;gap:16px;border:0;padding:20px 0 0;min-width:0}.theme-options{display:flex;flex-wrap:wrap;gap:12px;border:0;padding:0}.theme-options legend{font-weight:650;margin-bottom:10px}.theme-choice{display:flex;align-items:center;gap:8px;border:1px solid #cad8ca;border-radius:12px;padding:10px}.theme-choice:has(input:checked){outline:2px solid #285c34;outline-offset:2px}.theme-choice input[type=radio]{width:auto;padding:0}.swatch{width:20px;height:20px;border-radius:50%;display:inline-block}.store-preview{border:1px solid #dbe6db;border-top:6px solid var(--preview-color);border-radius:16px;padding:18px;overflow:hidden;background:white}.store-preview h4{color:var(--preview-color);font-size:1.35rem;overflow-wrap:anywhere}.store-preview p{overflow-wrap:anywhere}.store-preview img{width:100%;height:150px;object-fit:cover;border-radius:10px;margin-bottom:12px}.preview-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;font-weight:750;color:#527153}.save-hint{font-size:.85rem;margin:0}
 </style>
