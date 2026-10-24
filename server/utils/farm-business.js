@@ -30,6 +30,10 @@ function season(ctx, id) {
   if (!row) fail(404, 'Season unavailable')
   return row
 }
+function touchStock(stock) {
+  const previous = Date.parse(stock.updatedAt)
+  stock.updatedAt = new Date(Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)).toISOString()
+}
 function movement(ctx, fields) { return { id: randomUUID(), actorId: ctx.user.id, userId: ctx.farmId, createdAt: new Date().toISOString(), ...fields } }
 function order(ctx, id) {
   const row = ctx.workspace.orders.find(o => o.id === id)
@@ -51,6 +55,7 @@ export function changeBusiness(data, ctx, input) {
     const event = { id: randomUUID(), seasonId: input.seasonId, inventoryId: stock.id, type: 'harvest', date: when, quantity: q, unit: stock.unit, note, actorId: ctx.user.id, createdAt: new Date().toISOString() }
     const move = movement(ctx, { type: 'harvest', inventoryId: stock.id, quantity: q, seasonId: input.seasonId, eventId: event.id })
     stock.quantity = Number(next.toFixed(6))
+    touchStock(stock)
     ws.events.push(event); ws.movements.push(move)
     return { id: event.id }
   }
@@ -80,6 +85,7 @@ export function changeBusiness(data, ctx, input) {
     const entry = record(data, ctx, { title: `Cash sale ${row.invoiceId}`, category: 'income', amount: row.amountMinor / 100, note: row.customer, seasonId: row.seasonId, sourceId: row.id })
     if (entry) { entry.date = row.date; entry.amountMinor = row.amountMinor }
     stock.quantity = Number((stock.quantity - row.quantity).toFixed(6))
+    touchStock(stock)
     ws.movements.push(move)
     row.status = 'confirmed'; row.confirmedAt = new Date().toISOString()
     return { id: row.id }

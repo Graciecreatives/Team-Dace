@@ -1,17 +1,31 @@
 <script setup>
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 const props = defineProps({ state: { type: Object, required: true }, busy: Boolean })
 const emit = defineEmits(['command'])
 const today = () => new Date().toLocaleDateString('en-CA')
 const seasons = computed(() => props.state.planning?.seasons || [])
 const stock = computed(() => props.state.inventory || [])
 const business = computed(() => props.state.business)
-const harvest = reactive({ seasonId: '', inventoryId: '', quantity: '', date: today(), note: '' })
-const sale = reactive({ seasonId: '', inventoryId: '', quantity: '', unitPrice: '', customer: '', date: today(), productId: '' })
-const expense = reactive({ seasonId: '', amount: '', title: '', date: today(), note: '' })
+const emptyHarvest = () => ({ seasonId: '', inventoryId: '', quantity: '', date: today(), note: '' })
+const emptySale = () => ({ seasonId: '', inventoryId: '', quantity: '', unitPrice: '', customer: '', date: today(), productId: '' })
+const emptyExpense = () => ({ seasonId: '', amount: '', title: '', date: today(), note: '' })
+const harvest = reactive(emptyHarvest())
+const sale = reactive(emptySale())
+const expense = reactive(emptyExpense())
 const delivery = reactive({})
 const error = ref('')
 const invoice = ref(null)
+watch(() => props.state.lastCommandId, (id, previous) => {
+  if (!id || id === previous) return
+  const action = props.state.result?.action
+  if (action === 'harvest.create') Object.assign(harvest, emptyHarvest())
+  if (action === 'orders.create') Object.assign(sale, emptySale())
+  if (action === 'expense.create') Object.assign(expense, emptyExpense())
+  if (action === 'orders.deliver') {
+    for (const key of Object.keys(delivery)) delete delivery[key]
+  }
+  error.value = ''
+})
 const format = minor => (minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 function send(action, fields) {
   error.value = ''

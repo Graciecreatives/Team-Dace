@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createApp, createRouter, toNodeListener } from 'h3'
+import * as Vue from 'vue'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import { changeBusiness, businessView, moneyMinor } from '../server/utils/farm-business.js'
 import { emptyWorkspace } from '../server/utils/farm-workspace.js'
@@ -35,7 +36,11 @@ test('strict minor-unit money, half-up rounding and safe total bounds', () => {
 })
 test('harvest, confirmation exactly once, immutable invoices and delivery', () => {
   const f = fixture()
+  const initialTimestamp = '2026-01-01T00:00:00.000Z'
+  f.data.inventory[0].updatedAt = initialTimestamp
   f.run({ action: 'harvest.create', seasonId: 'season', inventoryId: 'stock', quantity: 5, date: '2026-10-24', note: 'Harvest' })
+  const harvestTimestamp = f.data.inventory[0].updatedAt
+  assert.ok(harvestTimestamp > initialTimestamp)
   assert.equal(f.data.inventory[0].quantity, 15)
   assert.equal(f.ctx.workspace.events[0].type, 'harvest')
   assert.equal(f.ctx.workspace.movements.length, 1)
@@ -46,7 +51,10 @@ test('harvest, confirmation exactly once, immutable invoices and delivery', () =
   rejectedWithoutMutation(f, { action: 'orders.deliver', id, status: 'delivered' }, 409)
   const invoice = row.invoiceId
   f.run({ action: 'orders.confirm', id, amountMinor: 1, quantity: 999 })
+  const confirmedTimestamp = f.data.inventory[0].updatedAt
+  assert.ok(confirmedTimestamp > harvestTimestamp)
   f.run({ action: 'orders.confirm', id })
+  assert.equal(f.data.inventory[0].updatedAt, confirmedTimestamp)
   assert.equal(f.data.inventory[0].quantity, 13.5)
   assert.equal(f.data.records.length, 1)
   assert.equal(f.data.records[0].amount, 15.02)
@@ -93,6 +101,47 @@ test('business Vue component compiles script, template and print styles', async 
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: 'FarmBusiness.vue', id: 'business', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
   for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename: 'FarmBusiness.vue', id: 'business', scoped: style.scoped }).errors, [])
 })
+test('business form drafts reset only after the matching confirmed server receipt', async () => {
+  const source = await readFile(new URL('../app/components/FarmBusiness.vue', import.meta.url), 'utf8')
+  const { descriptor } = parse(source)
+  const props = Vue.reactive({ state: {}, busy: false })
+  const commands = []
+  const body = descriptor.scriptSetup.content.replace(/^import .* from 'vue'\n/m, '')
+  const setup = new Function('computed', 'nextTick', 'reactive', 'ref', 'watch', 'defineProps', 'defineEmits', `${body}\nreturn { harvest, sale, expense, delivery, send }`)
+  const scope = Vue.effectScope()
+  const drafts = scope.run(() => setup(Vue.computed, Vue.nextTick, Vue.reactive, Vue.ref, Vue.watch, () => props, () => (_, payload) => commands.push(payload)))
+  try {
+    Object.assign(drafts.harvest, { seasonId: 'season', inventoryId: 'stock', quantity: '2', note: 'Keep until confirmed' })
+    drafts.sale.customer = 'Unsaved customer'
+    drafts.expense.title = 'Unsaved expense'
+    drafts.send('harvest.create', drafts.harvest)
+    await Vue.nextTick()
+    assert.equal(commands[0].quantity, 2)
+    assert.equal(drafts.harvest.quantity, '2', 'emitting or offline enqueue must not clear draft')
+    props.state = { error: 'Rejected' }
+    await Vue.nextTick()
+    assert.equal(drafts.harvest.note, 'Keep until confirmed')
+    props.state = { lastCommandId: 'confirmed-1', result: { action: 'harvest.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.harvest.quantity, '')
+    assert.equal(drafts.sale.customer, 'Unsaved customer')
+    assert.equal(drafts.expense.title, 'Unsaved expense')
+    drafts.harvest.note = 'Next draft'
+    props.state = { lastCommandId: 'confirmed-1', result: { action: 'harvest.create', alreadyApplied: true } }
+    await Vue.nextTick()
+    assert.equal(drafts.harvest.note, 'Next draft', 'same receipt must not clear a later draft')
+    props.state = { lastCommandId: 'confirmed-2', result: { action: 'orders.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.sale.customer, '')
+    props.state = { lastCommandId: 'confirmed-3', result: { action: 'expense.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.expense.title, '')
+    drafts.delivery.order = { status: 'delivered', reference: 'Truck' }
+    props.state = { lastCommandId: 'confirmed-4', result: { action: 'orders.deliver' } }
+    await Vue.nextTick()
+    assert.deepEqual(Object.keys(drafts.delivery), [])
+  } finally { scope.stop() }
+})
 test('real management HTTP cash-sale lifecycle, replay, rollback and authentication', async () => {
   const directory = await mkdtemp(join(process.env.JCODE_SCRATCH_DIR || tmpdir(), 'business-'))
   process.env.FARMBUDDY_DATA_FILE = join(directory, 'store.json')
@@ -120,7 +169,12 @@ test('real management HTTP cash-sale lifecycle, replay, rollback and authenticat
     const planning = await post({ action: 'season.create', name: 'Maize season', kind: 'crops', startsOn: '2026-01-01', endsOn: '2026-12-31' })
     const seasonId = planning.body.planning.seasons[0].id
     const harvest = { commandId: randomUUID(), action: 'harvest.create', seasonId, inventoryId: stockId, quantity: 5, date: '2026-10-24' }
+    const legacyTimestamp = createdStock.body.inventory.updatedAt
     const first = await post(harvest)
+    const harvestedStore = JSON.parse(await readFile(process.env.FARMBUDDY_DATA_FILE, 'utf8'))
+    const harvestedTimestamp = harvestedStore.inventory[0].updatedAt
+    assert.ok(harvestedTimestamp > legacyTimestamp)
+    await request(`/api/tools/inventory/${stockId}`, 'PATCH', { quantity: 100, expectedUpdatedAt: legacyTimestamp }, a.cookie, 409)
     await post(harvest)
     await post({ ...harvest, quantity: 6 }, 409)
     assert.equal(first.body.inventory[0].quantity, 15)
