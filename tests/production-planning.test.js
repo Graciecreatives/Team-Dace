@@ -19,14 +19,23 @@ test('production UI preserves failed drafts, resets only confirmed actions, and 
   const script = compileScript(descriptor, { id: 'production-test' })
   const template = compileTemplate({ source: descriptor.template.content, filename, id: 'production-test', compilerOptions: { bindingMetadata: script.bindings } })
   assert.deepEqual(template.errors, [])
-  const code = script.content.replace(/import \{([^}]+)\} from 'vue'/g, (_, names) => `const {${names}} = Vue`).replace('export default', 'return')
-  const component = new Function('Vue', code)(Vue)
-  const props = Vue.reactive({ busy: false, state: { farm: { id: 'farm', role: 'owner' }, planning: { plots: [], seasons: [], events: [] } } })
+  const code = script.content.replace(/import \{([^}]+)\} from 'vue'/g, (_, names) => `const {${names}} = Vue`).replace(/^import .* from .*\n/gm, '').replace('export default', 'return')
+  const ui = ['FbTabs', 'FbDialog', 'FbPageHeader', 'FbPanel', 'FbButton', 'FbBadge', 'FbEmptyState']
+  const component = new Function('Vue', ...ui, code)(Vue, ...ui.map(() => ({})))
+  const props = Vue.reactive({ busy: false, state: { currentUserId: 'user', farm: { id: 'farm', role: 'owner' }, planning: { plots: [], seasons: [{ id: 'season', name: 'Existing season', kind: 'crops', startsOn: '2026-01-01', endsOn: '2026-12-31', schedule: [] }], events: [] } } })
   const emitted = []
-  const vm = component.setup(props, { expose() {}, emit: (...args) => emitted.push(args) })
+  // Exercise watchers within a real mounted component, including their disposal.
+  let vm
+  const setup = component.setup
+  component.setup = (props, context) => { vm = setup(props, context); return vm }
+  component.render = () => null
+  const renderer = Vue.createRenderer({ createComment: () => ({}), createText: () => ({}), createElement: () => ({}), insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {}, parentNode: () => null, nextSibling: () => null })
+  const app = renderer.createApp({ setup: () => () => Vue.h(component, { ...props, onCommand: payload => emitted.push(['command', payload]) }) })
+  app.mount({})
+  try {
   assert.equal(vm.showMap.value, false)
   assert.match(descriptor.template.content, /ClientOnly v-if="showMap"/)
-  vm.season.name = 'New herd'
+  Object.assign(vm.season, { name: 'New herd', kind: 'livestock', startsOn: '2026-01-01', endsOn: '2026-12-31' })
   vm.saveSeason()
   assert.equal(emitted[0][1].action, 'season.create')
   props.busy = true
@@ -37,15 +46,21 @@ test('production UI preserves failed drafts, resets only confirmed actions, and 
   props.state = { ...props.state, lastCommandId: 'confirmed', result: { action: 'season.create' } }
   await Vue.nextTick()
   assert.equal(vm.season.name, '')
-  for (const [action, draft, key] of [['plot.create', vm.plot, 'name'], ['schedule.create', vm.schedule, 'title'], ['event.create', vm.event, 'note']]) {
-    draft[key] = 'Submitted draft'
-    vm.send(action, {})
+  for (const [action, draft, key, fields, save] of [
+    ['plot.create', vm.plot, 'name', { name: 'Submitted plot', coordinates: '7,3\n8,3\n8,4' }, vm.savePlot],
+    ['schedule.create', vm.schedule, 'title', { title: 'Submitted work', date: '2026-10-24' }, vm.saveSchedule],
+    ['event.create', vm.event, 'note', { type: 'observation', date: '2026-10-24', note: 'Submitted observation' }, vm.saveEvent]
+  ]) {
+    Object.assign(draft, fields)
+    const before = emitted.length
+    save()
+    assert.equal(emitted.length, before + 1, `${action} emits a valid command`)
     props.state = { ...props.state, lastCommandId: action, result: { action } }
     await Vue.nextTick()
     assert.equal(draft[key], '', `${action} clears after its confirmation`)
   }
-  vm.event.note = 'Original'
-  vm.send('event.create', {})
+  Object.assign(vm.event, { date: '2026-10-24', note: 'Original' })
+  vm.saveEvent()
   vm.event.note = 'Newer unsent edit'
   props.state = { ...props.state, lastCommandId: 'event-confirmed', result: { action: 'event.create' } }
   await Vue.nextTick()
@@ -59,6 +74,7 @@ test('production UI preserves failed drafts, resets only confirmed actions, and 
   assert.match(map, /config.public.mapTileUrl/)
   assert.match(map, /config.public.mapAttribution/)
   assert.match(map, /safeTileUrl\(tileUrl\)/)
+  } finally { app.unmount() }
 })
 
 function fixture(role = 'owner') {
