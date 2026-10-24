@@ -1,4 +1,5 @@
 <script setup>
+import FarmServiceStatus from './FarmServiceStatus.vue'
 import { Settings, LogOut, LoaderCircle, ShieldCheck } from 'lucide-vue-next'
 const props = defineProps({ user: { type: Object, required: true }, loggingOut: Boolean, onProfileSaved: { type: Function, required: true } })
 defineEmits(['logout'])
@@ -53,6 +54,7 @@ async function save() {
       </fieldset>
       <button type="submit" :disabled="saving || loggingOut" class="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[#066136] px-5 py-3 text-sm font-bold text-white hover:bg-[#084D2E] disabled:opacity-50"><LoaderCircle v-if="saving" :size="17" class="animate-spin" aria-hidden="true" />{{ saving ? 'Saving…' : 'Save farm settings' }}</button>
     </form>
+    <FarmServiceStatus :user-id="user.id || ''" />
     <section class="settings-panel" aria-labelledby="account-title"><h2 id="account-title" class="text-lg font-bold">Your account</h2><dl class="mt-4 grid gap-4 sm:grid-cols-2"><div><dt class="text-xs text-[#526C46]">Account email (read only)</dt><dd class="mt-1 break-words text-sm font-semibold">{{ user.email || 'Not provided' }}</dd></div><div><dt class="text-xs text-[#526C46]">Role</dt><dd class="mt-1 text-sm font-semibold">Farm owner</dd></div></dl><p class="mt-4 text-sm leading-6 text-[#526C46]">Account name and email changes are not available here. Team contacts do not grant access to your account.</p><div class="mt-5 flex items-start gap-3 rounded-xl bg-[#F1F5E9] p-4 text-sm leading-6 text-[#526C46]"><ShieldCheck :size="20" class="mt-1 shrink-0" aria-hidden="true" /><p>These settings update your farm profile only. They do not publish a nearby-farmer profile or change its visibility. Manage location sharing in Nearby farmers. Reminders stay in your dashboard, with no email or push notifications enabled.</p></div><button type="button" :disabled="loggingOut || saving" class="mt-6 inline-flex items-center gap-2 rounded-xl border border-[#D6E1CB] px-5 py-3 text-sm font-bold text-[#066136] hover:bg-[#EDF1E6] disabled:opacity-50" @click="$emit('logout')"><LogOut :size="18" aria-hidden="true" />{{ loggingOut ? 'Signing out…' : 'Log out' }}</button></section>
   </section>
 </template>
