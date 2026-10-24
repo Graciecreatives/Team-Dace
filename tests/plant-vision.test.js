@@ -32,7 +32,7 @@ test('specialist multipart contract, true decoding, sanitized model scores and p
     assert.equal(url.pathname, calls === 1 ? '/v2/diseases/identify' : '/v2/identify/all')
     assert.deepEqual(Object.fromEntries(url.searchParams), { 'api-key': 'private-test-key', lang: 'en', 'nb-results': '3', 'include-related-images': 'false' })
     assert.equal(options.method, 'POST')
-    assert.equal(options.redirect, 'error')
+    assert.equal(options.redirect, 'manual')
     assert.ok(options.signal instanceof AbortSignal)
     assert.deepEqual([...options.body.keys()], ['images', 'organs'])
     assert.equal(options.body.get('organs'), 'auto')
@@ -122,7 +122,7 @@ test('English catalogue resolves missing descriptions, caches safely and preserv
     if (url.pathname === '/v2/diseases') {
       catalogueCalls++
       assert.equal(options.method, 'GET')
-      assert.equal(options.redirect, 'error')
+      assert.equal(options.redirect, 'manual')
       assert.ok(options.signal instanceof AbortSignal)
       assert.equal(url.searchParams.get('lang'), 'en')
       assert.equal(url.searchParams.get('api-key'), 'catalogue-test')

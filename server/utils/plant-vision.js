@@ -104,7 +104,7 @@ async function diseaseLabels(fetcher) {
     try {
       const url = new URL('https://my-api.plantnet.org/v2/diseases')
       url.search = new URLSearchParams({ 'api-key': apiKey(), lang: 'en' }).toString()
-      const response = await fetcher(url.toString(), { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(5000) })
+      const response = await fetcher(url.toString(), { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(5000) })
       if (!response.ok) throw new Error()
       const rows = await responseJSON(response, 256 * 1024)
       if (!Array.isArray(rows) || rows.length > 2000) throw new Error()
@@ -133,17 +133,27 @@ export async function scanPlant(input, fetcher = fetch) {
   }
   const url = new URL(input.task === 'disease' ? 'https://my-api.plantnet.org/v2/diseases/identify' : 'https://my-api.plantnet.org/v2/identify/all')
   url.search = new URLSearchParams({ 'api-key': apiKey(), lang: 'en', 'nb-results': '3', 'include-related-images': 'false' }).toString()
+  let stage = 'request'
+  let providerStatus
   try {
-    const response = await fetcher(url.toString(), { method: 'POST', body: form, redirect: 'error', signal: AbortSignal.timeout(20000) })
+    // Workers rejects redirect:error before sending. Manual keeps 3xx responses
+    // visible so the non-2xx check rejects them without forwarding a photo or key.
+    const response = await fetcher(url.toString(), { method: 'POST', body: form, redirect: 'manual', signal: AbortSignal.timeout(20000) })
+    providerStatus = response.status
+    stage = 'http-status'
     // Preserve provider rejection. Never enable no-reject and never fall back to an LLM.
     if ([400, 404, 422].includes(response.status)) fail(422, 'Pl@ntNet could not identify a supported plant or disease in this photo. Try a clear photo of one plant.')
     if (!response.ok) throw new Error()
+    stage = 'response-json'
     const result = await responseJSON(response)
+    stage = 'normalize-results'
     const labels = input.task === 'disease' && Array.isArray(result.results) && result.results.some(item => !clean(item?.description)) ? await diseaseLabels(fetcher) : new Map()
     const candidates = resultsFor(result, input.task, labels)
     return { task: input.task, provider: 'Pl@ntNet', animalSupported: false, status: candidates.length ? 'suggestions' : 'no-match', candidates, ...(clean(result.version, 80) ? { version: clean(result.version, 80) } : {}), scoreLabel: 'Model score', notice: 'Model scores are not diagnostic probabilities. Plant disease support is limited. A photo cannot confirm a diagnosis. Verify with a qualified local agronomist. Never eat a plant based on this result.' }
   } catch (error) {
     if (error.statusCode === 422) throw error
+    // Never log the provider URL, raw error, key, photo or response body.
+    console.warn('plant_scan_failed', { stage, ...(providerStatus ? { providerStatus } : {}) })
     fail(502, 'Pl@ntNet is unavailable. Please try again later or ask the administrator to check provider access and quota.')
   }
 }
