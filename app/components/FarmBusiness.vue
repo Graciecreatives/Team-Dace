@@ -5,7 +5,7 @@ import FbButton from './ui/FbButton.vue'
 import FbPageHeader from './ui/FbPageHeader.vue'
 import FbDialog from './ui/FbDialog.vue'
 import { Sprout, Package, Receipt, Banknote, Plus, Truck, Printer } from 'lucide-vue-next'
-const props = defineProps({ state: { type: Object, required: true }, busy: Boolean })
+const props = defineProps({ state: { type: Object, required: true }, busy: Boolean, commandError: { type: String, default: '' } })
 const emit = defineEmits(['command'])
 const today = () => new Date().toLocaleDateString('en-CA')
 const seasons = computed(() => props.state.planning?.seasons || [])
@@ -50,8 +50,14 @@ watch(() => props.state.lastCommandId, (id, previous) => {
   if (!submitted || id === submitted.receipt || (submitted.id && result.id !== submitted.id)) return
   pending.delete(result.action)
   if (snapshot(submitted.draft) === submitted.snapshot) {
-    if (result.action === 'orders.deliver') delete delivery[submitted.id]
-    else Object.assign(submitted.draft, submitted.empty())
+    if (result.action === 'orders.deliver') {
+      delete delivery[submitted.id]
+      if (deliveryEditor.value === submitted.id) deliveryEditor.value = ''
+    } else {
+      Object.assign(submitted.draft, submitted.empty())
+      const completedTab = { 'harvest.create': 'harvest', 'orders.create': 'sale', 'expense.create': 'expense' }[result.action]
+      if (activeTab.value === completedTab) editorOpen.value = false
+    }
   }
   error.value = ''
 })
@@ -87,7 +93,7 @@ async function print(row) {
     <FbPageHeader id="business-title" title="From your farm to a cash sale" description="Follow the harvest, the stock and the money. No online payments are processed." />
     <p v-if="!business" role="status">Financial tools are available to farm owners and managers.</p>
     <template v-else>
-      <p v-if="error" role="alert" class="error">{{ error }}</p>
+      <p v-if="error || commandError" role="alert" class="error">{{ error || commandError }}</p>
       <p v-if="!seasons.length || !stock.length">Create a season in Production and a stock item in Inventory before recording harvests or sales.</p>
       <ol class="farm-flow" aria-label="Harvest to cash workflow">
         <li><span class="flow-icon"><Sprout aria-hidden="true" /></span><h3>Harvest</h3><p>{{ harvests.length }} recorded harvests</p><span>Record a harvest to add physical stock.</span><FbButton :disabled="busy" @click="openEditor('harvest')"><Plus :size="18" aria-hidden="true" />Record harvest</FbButton></li>
@@ -97,7 +103,7 @@ async function print(row) {
       </ol>
       <FbDialog v-model:open="editorOpen" :busy="busy" :title="activeTab === 'harvest' ? 'Record a harvest' : activeTab === 'sale' ? 'Draft a cash sale' : 'Record a season expense'" description="Your draft stays here until its matching command succeeds. Closing this editor keeps your entered details.">
       <div class="forms">
-      <p v-if="error" role="alert" class="error">{{ error }} Your entered details have been kept.</p>
+      <p v-if="error || commandError" role="alert" class="error">{{ error || commandError }} Your entered details have been kept.</p>
       <FbTabs v-model="activeTab" :items="tabs" label="Business records">
         <template #harvest>
         <form @submit.prevent="send('harvest.create', harvest)">

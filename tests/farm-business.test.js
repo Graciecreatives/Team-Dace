@@ -168,6 +168,7 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     props.state = { lastCommandId: 'confirmed-1', result: { action: 'harvest.create' } }
     await Vue.nextTick()
     assert.equal(drafts.harvest.quantity, '')
+    assert.equal(drafts.editorOpen.value, true, 'a harvest receipt must not close the unrelated sale editor')
     assert.equal(drafts.sale.customer, 'Unsaved customer')
     assert.equal(drafts.expense.title, 'Unsaved expense')
     drafts.harvest.note = 'Next draft'
@@ -184,10 +185,12 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     props.state = { lastCommandId: 'confirmed-sale', result: { action: 'orders.create' } }
     await Vue.nextTick()
     assert.equal(drafts.sale.customer, 'Edited during request')
+    assert.equal(drafts.editorOpen.value, true, 'edits made during a request keep their editor open')
     drafts.send('orders.create', drafts.sale)
     props.state = { lastCommandId: 'confirmed-sale-unchanged', result: { action: 'orders.create' } }
     await Vue.nextTick()
     assert.equal(drafts.sale.customer, '', 'unchanged submitted sale clears')
+    assert.equal(drafts.editorOpen.value, false, 'matching successful sale closes its editor')
     Object.assign(drafts.harvest, { quantity: '4', note: 'Submitted' })
     drafts.send('harvest.create', drafts.harvest)
     drafts.harvest.note = 'Edited harvest'

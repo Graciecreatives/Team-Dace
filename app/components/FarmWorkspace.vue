@@ -27,9 +27,9 @@ watch(() => state.value?.lastCommandId, id => { if (id) emit('changed') })
     <p v-if="stale" class="workspace-warning">Cached information only. Stock, roles and task assignments may have changed. Changes are checked by the server when synced.</p>
     <p v-if="!state && busy" class="workspace-loading" role="status"><Sprout :size="24" aria-hidden="true" />Loading your farm…</p>
     <template v-if="state">
-      <FarmProduction v-if="section === 'planning'" :key="state.farm.id" :state="state" :busy="busy || !!uncertain" @command="command" />
+      <FarmProduction v-if="section === 'planning'" :key="state.farm.id" :state="state" :command-error="error" :busy="busy || !!uncertain" @command="command" />
       <FarmOperations v-if="['operations', 'team'].includes(section)" :key="`${state.farm.id}:${section}`" :section="section" :state="state" :busy="busy || !!uncertain" @command="command" />
-      <FarmBusiness v-if="section === 'business'" :key="state.farm.id" :state="state" :busy="busy || !!uncertain" @command="command" />
+      <FarmBusiness v-if="section === 'business'" :key="state.farm.id" :state="state" :command-error="error" :busy="busy || !!uncertain" @command="command" />
       <details v-if="section === 'team' && state.farm.id === user.id" class="legacy-roster"><summary>Contact notebook (contacts do not grant account access)</summary><FarmTeam :user="user" /></details>
     </template>
     <details class="offline-panel">
