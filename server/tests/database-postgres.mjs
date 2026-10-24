@@ -37,6 +37,10 @@ test('real PostgreSQL: locks, rollback, persistence, schema constraints and priv
     const seed = emptySnapshot()
     seed.users.push({ id: 'user-1', passwordHash: 'preserve-hash' })
     seed.sessions.push({ id: 'server-session', userId: 'user-1' })
+    seed.marketplaceFarms.push({ ownerId: 'user-1', slug: 'preserved-farm' })
+    seed.marketplaceProducts.push({ id: 'product-1', imageUrl: '/api/product-images/photo-1' })
+    seed.marketplaceImages.push({ id: 'photo-1', data: 'base64-photo-content', mimeType: 'image/png' })
+    seed.unknownFutureData = [{ preserved: true }]
     const imports = await Promise.allSettled([importSnapshot(first, seed), importSnapshot(second, seed)])
     assert.equal(imports.filter(result => result.status === 'fulfilled').length, 1)
     assert.equal(imports.filter(result => result.status === 'rejected').length, 1)
@@ -44,6 +48,16 @@ test('real PostgreSQL: locks, rollback, persistence, schema constraints and priv
     // Reapplying provisioning must never reset existing state.
     await first.begin(tx => tx.unsafe(schema))
     assert.deepEqual(await storeA(data => data.users), seed.users)
+    assert.deepEqual(await storeA(data => data), seed)
+    // Legacy snapshots may omit marketplace collections, but present fields
+    // must always be arrays. Loading adds missing arrays only in memory.
+    const legacy = structuredClone(seed)
+    for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) delete legacy[key]
+    await first`UPDATE farmbuddy_private.app_state SET snapshot = ${first.json(legacy)} WHERE id = 1`
+    for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) assert.deepEqual(await storeB(data => data[key]), [])
+    const [unchangedLegacy] = await first`SELECT snapshot FROM farmbuddy_private.app_state WHERE id = 1`
+    assert.deepEqual(unchangedLegacy.snapshot, legacy)
+    await first`UPDATE farmbuddy_private.app_state SET snapshot = ${first.json(seed)} WHERE id = 1`
     const expected = new Error('callback validation')
     await assert.rejects(storeA(data => { data.notes.push('rollback'); throw expected }, true), error => error === expected)
     await storeA(data => data.notes.push('read-discard'))
@@ -63,6 +77,13 @@ test('real PostgreSQL: locks, rollback, persistence, schema constraints and priv
     for (const snapshot of [{}, { ...seed, version: 2 }, { ...seed, notes: null }]) {
       await assert.rejects(first`UPDATE farmbuddy_private.app_state SET snapshot = ${first.json(snapshot)} WHERE id = 1`, error => error.code === '23514')
     }
+    for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) {
+      for (const invalid of [null, {}, 'bad', 1]) {
+        await assert.rejects(first`UPDATE farmbuddy_private.app_state SET snapshot = ${first.json({ ...seed, [key]: invalid })} WHERE id = 1`, error => error.code === '23514')
+      }
+      await assert.rejects(storeA(data => { data[key] = {} }, true), /database unavailable/)
+      assert.deepEqual(await storeB(data => data[key]), seed[key])
+    }
     await assert.rejects(first`INSERT INTO farmbuddy_private.app_state(id, snapshot) VALUES (2, NULL)`, error => error.code === '23514')
     for (const role of ['anon', 'authenticated']) {
       const [privileges] = await first`SELECT has_schema_privilege(${role}, 'farmbuddy_private', 'USAGE') AS usage, has_table_privilege(${role}, 'farmbuddy_private.app_state', 'SELECT') AS select, has_table_privilege(${role}, 'farmbuddy_private.app_state', 'UPDATE') AS update`
@@ -73,6 +94,9 @@ test('real PostgreSQL: locks, rollback, persistence, schema constraints and priv
     try {
       assert.equal((await createDatabaseStore(reopened)(data => data.notes)).length, 40)
       assert.deepEqual(await createDatabaseStore(reopened)(data => data.sessions), seed.sessions)
+      for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages', 'unknownFutureData']) {
+        assert.deepEqual(await createDatabaseStore(reopened)(data => data[key]), seed[key])
+      }
     } finally { await reopened.end() }
   } finally {
     await first.end({ timeout: 1 })

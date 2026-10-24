@@ -1,4 +1,4 @@
-export const collections = ['users', 'sessions', 'records', 'reminders', 'enterprises', 'inventory', 'referrals', 'notes']
+export const collections = ['users', 'sessions', 'records', 'reminders', 'enterprises', 'inventory', 'referrals', 'notes', 'marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']
 
 export function emptySnapshot() {
   return { version: 1, ...Object.fromEntries(collections.map(key => [key, []])) }

@@ -6,8 +6,12 @@ CREATE TABLE IF NOT EXISTS farmbuddy_private.app_state (
   id smallint PRIMARY KEY CHECK (id = 1),
   revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
   snapshot jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT app_snapshot_format CHECK (snapshot IS NULL OR (
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- Refresh the constraint on explicit re-application too. Existing snapshot data
+-- is never rewritten. Invalid existing rows abort the enclosing schema transaction.
+ALTER TABLE farmbuddy_private.app_state DROP CONSTRAINT IF EXISTS app_snapshot_format;
+ALTER TABLE farmbuddy_private.app_state ADD CONSTRAINT app_snapshot_format CHECK (snapshot IS NULL OR (
     jsonb_typeof(snapshot) = 'object'
     AND snapshot->'version' = '1'::jsonb
     AND jsonb_typeof(snapshot->'users') = 'array'
@@ -18,8 +22,10 @@ CREATE TABLE IF NOT EXISTS farmbuddy_private.app_state (
     AND jsonb_typeof(snapshot->'inventory') = 'array'
     AND jsonb_typeof(snapshot->'referrals') = 'array'
     AND jsonb_typeof(snapshot->'notes') = 'array'
-  ) IS TRUE)
-);
+    AND (NOT (snapshot ? 'marketplaceFarms') OR jsonb_typeof(snapshot->'marketplaceFarms') = 'array')
+    AND (NOT (snapshot ? 'marketplaceProducts') OR jsonb_typeof(snapshot->'marketplaceProducts') = 'array')
+    AND (NOT (snapshot ? 'marketplaceImages') OR jsonb_typeof(snapshot->'marketplaceImages') = 'array')
+  ) IS TRUE);
 ALTER TABLE farmbuddy_private.app_state ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON ALL TABLES IN SCHEMA farmbuddy_private FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES IN SCHEMA farmbuddy_private REVOKE ALL ON TABLES FROM PUBLIC;

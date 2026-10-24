@@ -55,6 +55,10 @@ test('snapshot upgrades optional collections without dropping fields', () => {
   const snapshot = { version: 1, users: [], sessions: [], records: [], reminders: [], future: { keep: true } }
   assert.equal(validateSnapshot(snapshot), snapshot)
   assert.deepEqual(snapshot.notes, [])
+  for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) {
+    assert.deepEqual(snapshot[key], [])
+    for (const invalid of [null, {}, 'invalid', 1]) assert.throws(() => validateSnapshot({ ...emptySnapshot(), [key]: invalid }))
+  }
   assert.deepEqual(snapshot.future, { keep: true })
   for (const data of [null, {}, { ...emptySnapshot(), version: 2 }, { ...emptySnapshot(), users: {} }]) assert.throws(() => validateSnapshot(data))
 })
@@ -96,10 +100,27 @@ test('imports require uninitialized state and never overwrite existing data', as
   const db = fakeDatabase(null)
   const snapshot = emptySnapshot()
   snapshot.users.push({ id: 'preserved' })
+  snapshot.marketplaceFarms.push({ ownerId: 'preserved', slug: 'existing-farm' })
+  snapshot.marketplaceProducts.push({ id: 'product-1', imageUrl: '/api/product-images/photo-1' })
+  snapshot.marketplaceImages.push({ id: 'photo-1', data: 'base64-photo-content', mimeType: 'image/png' })
+  snapshot.futureCollection = [{ untouched: true }]
+  const original = structuredClone(snapshot)
   await importSnapshot(db.sql, snapshot)
-  assert.deepEqual(db.state(), snapshot)
+  assert.deepEqual(db.state(), original)
   await assert.rejects(importSnapshot(db.sql, emptySnapshot()), /refused/)
   assert.deepEqual(db.state(), snapshot)
+})
+
+test('invalid marketplace imports and mutations cannot replace valid snapshot data', async () => {
+  for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) {
+    const uninitialized = fakeDatabase(null)
+    await assert.rejects(importSnapshot(uninitialized.sql, { ...emptySnapshot(), [key]: {} }), /Invalid FarmBuddy store/)
+    assert.equal(uninitialized.state(), null)
+    const db = fakeDatabase()
+    await assert.rejects(createDatabaseStore(db.sql)(data => { data[key] = null }, true), /database unavailable/)
+    assert.deepEqual(db.state(), emptySnapshot())
+    assert.equal(db.writes(), 0)
+  }
 })
 
 test('CLI dry-run preserves source without credentials or connection; invalid input fails', async () => {
