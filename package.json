@@ -5,7 +5,7 @@
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
-    "host": "nuxt dev --host 0.0.0.0 --port 3000",
+    "host": "nuxt dev --host 0.0.0.0 --port 3000 --no-fork --strictPort",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "test": "node server/tests/integration.mjs && node server/tests/location.mjs && node --test app/tests/*.test.mjs tests/*.test.js",

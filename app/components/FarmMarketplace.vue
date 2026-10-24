@@ -1,27 +1,29 @@
 <script setup>
-const props = defineProps({ user: { type: Object, default: () => ({}) } })
+const props = defineProps({ user: { type: Object, required: true } })
 const farm = reactive({ slug: '', name: '', contact: '', contactConsent: false, published: false })
 const emptyProduct = () => ({ name: '', description: '', price: '', quantity: '', unit: 'kg', currency: 'NGN', imageUrl: '', published: false })
 const draft = reactive(emptyProduct())
 const products = ref([]), busy = ref(false), error = ref(''), feedback = ref(''), origin = ref('')
+const loaded = ref(false)
 let generation = 0
 const savedFarm = ref({ slug: '', published: false })
 const shareLink = computed(() => origin.value && savedFarm.value.slug ? `${origin.value}/${savedFarm.value.slug}/products` : '')
-function apply(data) { Object.assign(farm, data.farm); savedFarm.value = { ...data.farm }; products.value = data.products }
+function apply(data) { Object.assign(farm, data.farm); savedFarm.value = { ...data.farm }; products.value = data.products; loaded.value = true }
 async function load() {
   const token = ++generation
+  loaded.value = false
   products.value = []; savedFarm.value = { slug: '', published: false }; Object.assign(farm, { slug: '', name: '', contact: '', contactConsent: false, published: false }); resetDraft()
   busy.value = true; error.value = ''; feedback.value = ''
-  try { const data = await $fetch('/api/marketplace'); if (token === generation) apply(data) }
+  try { const data = await $fetch('/api/marketplace', { timeout: 15000 }); if (token === generation) apply(data) }
   catch { if (token === generation) error.value = 'Could not load your catalog. Sign in and retry.' }
   finally { if (token === generation) busy.value = false }
 }
 async function save(input, message) {
-  if (busy.value) return false
+  if (busy.value || !loaded.value) return false
   const token = generation
   busy.value = true; error.value = ''; feedback.value = ''
   try {
-    const data = await $fetch('/api/marketplace', { method: 'POST', body: input })
+    const data = await $fetch('/api/marketplace', { method: 'POST', body: input, timeout: 15000 })
     if (token !== generation) return false
     apply(data); feedback.value = message; return true
   } catch (cause) { if (token === generation) error.value = cause?.data?.statusMessage || 'Save was not confirmed. Refresh before retrying.'; return false }
@@ -33,7 +35,7 @@ function edit(product) { resetDraft(); Object.assign(draft, product); feedback.v
 async function remove(product) { if (window.confirm(`Delete ${product.name}? This cannot be undone.`)) { if (await save({ action: 'deleteProduct', id: product.id }, 'Product deleted.') && draft.id === product.id) resetDraft() } }
 async function copyLink() { try { await navigator.clipboard.writeText(shareLink.value); feedback.value = 'Storefront link copied.' } catch { feedback.value = 'Copy the storefront link from the field below.' } }
 onMounted(() => { origin.value = window.location.origin; load() })
-watch(() => props.user?.id, () => { if (origin.value) load() })
+watch(() => props.user?.id, () => { if (origin.value) load() }, { flush: 'sync' })
 onUnmounted(() => { generation++ })
 </script>
 
@@ -51,11 +53,11 @@ onUnmounted(() => { generation++ })
       <label class="check"><input v-model="farm.contactConsent" type="checkbox"> I consent to displaying this contact publicly. My account email is never filled in automatically.</label>
       <p>To remove contact consent, also clear the contact field.</p>
       <label class="check"><input v-model="farm.published" type="checkbox"> Publish this storefront, its farm name and explicitly published products</label>
-      <button :disabled="busy">Save storefront settings</button>
+      <button :disabled="busy || !loaded">Save storefront settings</button>
     </form>
     <div v-if="shareLink" class="notice"><label>Storefront link<input :value="shareLink" readonly aria-label="Storefront share link"></label><button type="button" @click="copyLink">Copy link</button> <a v-if="savedFarm.published" :href="shareLink" target="_blank" rel="noopener">Open storefront</a><p v-else>Storefront is unpublished. Visitors will see an unavailable page.</p></div>
     <h3>Your products</h3><p v-if="!products.length">No products yet. Start with your first harvest or farm product.</p>
-    <ul class="product-list"><li v-for="product in products" :key="product.id"><h4>{{ product.name }}</h4><p>{{ product.currency }} {{ product.price.toFixed(2) }} / {{ product.unit }} · {{ product.quantity }} available</p><p>{{ product.published ? 'Published product' : 'Private draft' }}</p><button type="button" :disabled="busy" @click="edit(product)">Edit</button> <button type="button" :disabled="busy" @click="save({ ...product, action: 'saveProduct', published: !product.published }, 'Publication updated.')">{{ product.published ? 'Unpublish' : 'Publish' }}</button> <button type="button" :disabled="busy" @click="remove(product)">Delete</button></li></ul>
+    <ul class="product-list"><li v-for="product in products" :key="product.id"><h4>{{ product.name }}</h4><p>{{ product.currency }} {{ product.price.toFixed(2) }} / {{ product.unit }} · {{ product.quantity }} available</p><p>{{ product.published ? 'Published product' : 'Private draft' }}</p><button type="button" :disabled="busy || !loaded" @click="edit(product)">Edit</button> <button type="button" :disabled="busy || !loaded" @click="save({ ...product, action: 'saveProduct', published: !product.published }, 'Publication updated.')">{{ product.published ? 'Unpublish' : 'Publish' }}</button> <button type="button" :disabled="busy || !loaded" @click="remove(product)">Delete</button></li></ul>
     <form @submit.prevent="saveProduct">
       <h3>{{ draft.id ? 'Edit product' : 'Add a product' }}</h3>
       <label>Product name<input v-model="draft.name" required maxlength="120"></label>
@@ -63,7 +65,7 @@ onUnmounted(() => { generation++ })
       <div class="fields"><label>Price per unit<input v-model="draft.price" type="number" required min="0.01" max="1000000000" step="0.01"></label><label>Currency<select v-model="draft.currency"><option v-for="code in ['NGN','USD','GBP','EUR','GHS','KES','ZAR']" :key="code">{{ code }}</option></select></label><label>Quantity available<input v-model="draft.quantity" type="number" required min="0" max="1000000000" step="any"></label><label>Unit<input v-model="draft.unit" required maxlength="40" placeholder="kg, crate, bag"></label></div>
       <label>Image URL (optional, public HTTPS only)<input v-model="draft.imageUrl" type="url" maxlength="1000" placeholder="https://images.example.com/tomatoes.jpg"></label><p>External images may reveal a visitor's IP to the image host. Use a trusted image host, never a private or signed URL.</p>
       <label class="check"><input v-model="draft.published" type="checkbox"> Publish this product on my published storefront</label>
-      <button :disabled="busy">{{ draft.id ? 'Save changes' : 'Add product' }}</button><button v-if="draft.id" type="button" :disabled="busy" @click="resetDraft">Cancel edit</button>
+      <button :disabled="busy || !loaded">{{ draft.id ? 'Save changes' : 'Add product' }}</button><button v-if="draft.id" type="button" :disabled="busy || !loaded" @click="resetDraft">Cancel edit</button>
     </form>
   </section>
 </template>

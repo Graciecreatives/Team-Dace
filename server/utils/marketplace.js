@@ -21,8 +21,8 @@ export function safeImage(value = '') {
   return url.href
 }
 function arrays(data) {
-  data.marketplaceFarms ||= []
-  data.marketplaceProducts ||= []
+  if (data.marketplaceFarms === undefined) data.marketplaceFarms = []
+  if (data.marketplaceProducts === undefined) data.marketplaceProducts = []
   if (!Array.isArray(data.marketplaceFarms) || !Array.isArray(data.marketplaceProducts)) throw new Error('Invalid marketplace store')
 }
 const productCard = p => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, quantity: p.quantity, unit: p.unit, imageUrl: p.imageUrl, published: p.published === true })

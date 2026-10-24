@@ -1,7 +1,9 @@
 <script setup>
 import FarmWatch from './FarmWatch.vue'
 import FarmBookkeeping from './FarmBookkeeping.vue'
-import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, LogOut, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, LoaderCircle, Trash2, Bot, CloudSun, Users, Package, NotebookPen } from 'lucide-vue-next'
+import FarmMarketplace from './FarmMarketplace.vue'
+import FarmTeam from './FarmTeam.vue'
+import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, LogOut, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, LoaderCircle, Trash2, Bot, CloudSun, Users, Store, Package, NotebookPen } from 'lucide-vue-next'
 
 useHead({ title: 'Your farm dashboard | FarmBuddy' })
 const { data: session, error: sessionError } = await useFetch('/api/auth/me')
@@ -47,6 +49,8 @@ const nav = [
   { id: 'reminders', label: 'Reminders', icon: Bell },
   { id: 'enterprises', label: 'Crop & herd register', icon: Sprout },
   { id: 'inventory', label: 'Inventory', icon: Package },
+  { id: 'marketplace', label: 'Marketplace', icon: Store },
+  { id: 'team', label: 'My team', icon: Users },
   { id: 'notes', label: 'Offline notes', icon: NotebookPen },
   { id: 'assistant', label: 'FarmBuddyAI', icon: Bot },
   { id: 'weather', label: 'Farm Watch', icon: CloudSun },
@@ -59,7 +63,6 @@ const pending = computed(() => reminders.value.filter(r => !r.completed).sort((a
 const recent = computed(() => [...records.value].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
 const money = value => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 2 }).format(value)
 const displayDate = value => new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-const initials = computed(() => (user.value.name || 'Farmer').split(' ').filter(Boolean).slice(0, 2).map(n => n[0]).join('').toUpperCase())
 function chooseSection(id) { if (id === 'weather') watchStarted.value = true; section.value = id; mobileMenu.value = false; feedback.value = ''; error.value = '' }
 function openDialog(type) { dialogTrigger = document.activeElement; dialog.value = type; error.value = ''; feedback.value = ''; nextTick(() => document.getElementById(type === 'record' ? 'record-title' : 'reminder-title')?.focus()) }
 function addBookkeepingEntry(category) { Object.assign(recordForm, { title: '', category: category === 'expense' ? 'expense' : 'income', amount: '', note: '' }); openDialog('record') }
@@ -119,7 +122,6 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
     <div class="lg:pl-64">
       <header class="flex min-h-20 items-center justify-between gap-4 border-b border-[#DFE6D9] bg-white/70 px-5 py-4 sm:px-8">
         <div class="flex items-center gap-3"><button type="button" aria-label="Open dashboard navigation" :aria-expanded="mobileMenu" class="rounded-lg p-2 hover:bg-[#EDF1E6] lg:hidden" @click="mobileMenu = !mobileMenu"><Menu :size="22" /></button><button type="button" class="inline-flex items-center gap-2 rounded-xl border border-[#DCE5D8] px-3 py-2 text-xs font-semibold text-[#066136]" aria-label="Open Farm Watch weather and health notifications" @click="chooseSection('weather')"><Bell :size="17" />Farm Watch<span v-if="unreadWatch" class="rounded-full bg-[#F9C23C] px-2 py-0.5 text-[10px]" :aria-label="`${unreadWatch} unread notifications`">{{ unreadWatch }}</span></button></div>
-        <button type="button" class="flex items-center gap-3 text-left" aria-label="View your farm profile" @click="chooseSection('profile')"><span class="flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-[#F9C23C] text-xs font-extrabold shadow-sm">{{ initials }}</span><span class="hidden sm:block"><span class="block text-xs font-bold">{{ user.name }}</span><span class="mt-0.5 block text-[10px] text-[#7D8C76]">FarmBuddy farmer</span></span></button>
       </header>
       <main class="mx-auto max-w-[1440px]" :class="section === 'assistant' ? 'px-2 py-3 sm:px-5 sm:py-5' : 'px-5 py-7 sm:px-8 sm:py-9'">
         <p v-if="feedback" role="status" class="mb-5 rounded-xl border border-[#CFE1C4] bg-[#E8F2E0] px-4 py-3 text-sm text-[#32673B]">{{ feedback }}</p>
@@ -141,6 +143,8 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
           <section v-if="section !== 'records'" class="dash-panel" aria-labelledby="reminders-title"><div class="flex items-center justify-between gap-4 border-b border-[#EDF0E8] p-5 sm:p-6"><div><h2 id="reminders-title" class="font-bold">{{ section === 'overview' ? 'On your farm calendar' : 'Your reminders' }}</h2><p class="mt-1 text-xs text-[#8B9981]">{{ pending.length }} tasks to look forward to.</p></div><button type="button" aria-label="Add reminder" class="rounded-lg border border-[#DDE5D4] p-2 text-[#066136] hover:bg-[#EDF2E5]" @click="openDialog('reminder')"><Plus :size="16" /></button></div><div v-if="!(section === 'overview' ? pending : reminders).length" class="px-6 py-12 text-center"><Bell :size="28" class="mx-auto text-[#91AB7A]" /><h3 class="mt-4 text-sm font-bold">A little planning goes a long way.</h3><p class="mt-2 text-xs leading-6 text-[#8A9880]">{{ tailored.tasks }} They’ll stay here until you mark them done.</p><button type="button" class="mt-5 text-xs font-bold text-[#066136]" @click="openDialog('reminder')">Create a reminder</button></div><ul v-else class="divide-y divide-[#EDF0E8]"><li v-for="reminder in (section === 'overview' ? pending.slice(0, 5) : [...reminders].sort((a,b) => a.date.localeCompare(b.date)))" :key="reminder.id" class="flex items-start gap-3 p-5"><button type="button" :aria-label="`${reminder.completed ? 'Mark incomplete' : 'Complete'}: ${reminder.title}`" :aria-pressed="reminder.completed" :disabled="!!pendingReminder" class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border disabled:opacity-50" :class="reminder.completed ? 'border-[#066136] bg-[#066136] text-white' : 'border-[#C8D6BD] bg-white'" @click="toggleReminder(reminder)"><Check v-if="reminder.completed" :size="13" /></button><div><p class="break-words text-sm font-semibold" :class="reminder.completed ? 'text-[#A0AC95] line-through' : ''">{{ reminder.title }}</p><p class="mt-1.5 text-[10px]" :class="!reminder.completed && reminder.date < today ? 'font-semibold text-[#AE693A]' : 'text-[#96A18D]'">{{ displayDate(reminder.date) }}{{ !reminder.completed && reminder.date < today ? ' · Overdue' : '' }}</p></div></li></ul><p class="border-t border-[#EDF0E8] px-5 py-3 text-[10px] leading-5 text-[#96A18D]">Reminders appear in your dashboard. Email and push notifications are not enabled.</p></section>
         </div>
 
+        <FarmMarketplace v-if="section === 'marketplace'" :user="user" />
+        <FarmTeam v-if="section === 'team'" :user="user" />
         <FarmBookkeeping v-if="section === 'bookkeeping'" :records="records" :deleting="deleting" @add-entry="addBookkeepingEntry" @delete-entry="deleteRecord" />
         <FarmManagement v-if="['enterprises', 'inventory'].includes(section)" :key="section" :section="section" :user="user" />
         <FarmNotes v-if="section === 'notes'" :user="user" mode="notes" />
