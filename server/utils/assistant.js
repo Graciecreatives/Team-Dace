@@ -16,13 +16,20 @@ export function assistantLimit(userId) {
   if (++item.count > 10) fail(429, 'Please wait before asking again')
 }
 const present = key => typeof process.env[key] === 'string' && Boolean(process.env[key].trim())
+const assistantModel = () => (process.env.OPENROUTER_MODEL?.trim() || process.env.FARMBUDDY_AI_MODEL?.trim() || 'openai/gpt-4.1-mini')
+const validModel = model => /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.:-]+$/.test(model) && model.length <= 200
+// Custom models remain text-only until their image capabilities have been verified.
+const photoModel = model => model === 'openai/gpt-4.1-mini'
 export function assistantStatus() {
-  return { chat: present('OPENAI_API_KEY'), photo: present('OPENAI_API_KEY'), voice: present('YARNGPT_API_KEY') }
+  const model = assistantModel()
+  const chat = present('OPENROUTER_API_KEY') && validModel(model)
+  return { chat, photo: chat && photoModel(model), voice: present('YARNGPT_API_KEY') }
 }
 function providerError(status, name) {
   if ([401, 403].includes(status)) fail(502, `${name} credentials were rejected. The site owner should check the server API key and provider access.`)
   if (status === 429) fail(502, `${name} usage limit reached. The site owner should check provider quota or billing, then retry.`)
-  if (status === 404) fail(502, `${name} model or endpoint is unavailable. The site owner should check the provider configuration.`)
+  if (status === 402) fail(502, `${name} credits are insufficient. The site owner should check provider billing.`)
+  if ([400, 404, 422].includes(status)) fail(502, `${name} model or endpoint is unavailable or does not support this request. The site owner should check the provider configuration.`)
   fail(502, `${name} is temporarily unavailable. Please try again later.`)
 }
 export async function assistantBody(event, limit = 4 * 1024 * 1024 + 100000) {
@@ -60,7 +67,7 @@ export function validateChat(input) {
     const mime = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? 'image/png' : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? 'image/jpeg' : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP' ? 'image/webp' : ''
     if (mime !== match[1]) fail(400, 'Image contents do not match its type')
     const last = messages.at(-1)
-    last.content = [{ type: 'input_text', text: last.content }, { type: 'input_image', image_url: input.image, detail: 'auto' }]
+    last.content = [{ type: 'text', text: last.content }, { type: 'image_url', image_url: { url: input.image } }]
   }
   return { task, messages }
 }
@@ -86,17 +93,21 @@ async function boundedResponse(response, max) {
 }
 export async function assistantChat(input, user, fetcher = fetch) {
   const { task, messages } = validateChat(input)
-  if (!present('OPENAI_API_KEY')) fail(503, 'AI chat is not configured')
-  const model = process.env.FARMBUDDY_AI_MODEL || 'gpt-4.1-mini'
+  if (!present('OPENROUTER_API_KEY')) fail(503, 'AI chat is not configured. The site owner must configure OpenRouter.')
+  const model = assistantModel()
+  if (!validModel(model)) fail(503, 'AI model configuration requires a namespaced OpenRouter model ID.')
+  if (input.image && !photoModel(model)) fail(503, 'Photo input is not verified for the configured model. Send a written question or ask the site owner to select the supported default model.')
   try {
-    const response = await fetcher('https://api.openai.com/v1/responses', {
-      method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    const response = await fetcher('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY.trim()}`, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(45000), redirect: 'error',
-      body: JSON.stringify({ model, instructions: assistantPrompt(user, task), input: messages, store: false, max_output_tokens: 1000 })
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: assistantPrompt(user, task) }, ...messages], stream: false, max_tokens: 1000 })
     })
     if (!response.ok) providerError(response.status, 'AI provider')
     const result = JSON.parse((await boundedResponse(response, 128000)).toString('utf8'))
-    const text = result.output?.filter(item => item.type === 'message').flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('\n').trim()
+    if (result.error) providerError(Number(result.error.code), 'OpenRouter')
+    const content = result.choices?.[0]?.message?.content
+    const text = typeof content === 'string' ? content.trim() : ''
     if (!text) throw new Error('Empty response')
     return { text: text.slice(0, 6000), model, disclaimer: 'AI guidance, not a professional diagnosis. Verify with a qualified local expert.' }
   } catch (error) { if (error.statusCode === 502) throw error; fail(502, 'AI service is unavailable. Please try again later.') }

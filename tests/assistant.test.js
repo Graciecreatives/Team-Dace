@@ -11,14 +11,22 @@ import { assistantChat, assistantSpeak, assistantStatus, validateChat, assistant
 const input = { task: 'chat', messages: [{ role: 'user', content: 'How should I inspect my maize?' }] }
 const errorStatus = status => error => error.statusCode === status
 
-test('assistant validation and mocked primary provider boundaries, no live calls', async () => {
-  delete process.env.OPENAI_API_KEY
+test('assistant validation and mocked primary provider boundaries, no live calls', async t => {
+  const keys = ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'FARMBUDDY_AI_MODEL', 'YARNGPT_API_KEY', 'YARNGPT_VOICE']
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+  t.after(() => { for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key] } })
+  process.env.OPENAI_API_KEY = 'legacy-key-must-not-be-used'
+  delete process.env.OPENROUTER_MODEL
+  delete process.env.FARMBUDDY_AI_MODEL
+  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
   assert.deepEqual(assistantStatus(), { chat: false, photo: false, voice: false })
-  process.env.OPENAI_API_KEY = '   '
+  process.env.OPENROUTER_API_KEY = '   '
   process.env.YARNGPT_API_KEY = '   '
   assert.deepEqual(assistantStatus(), { chat: false, photo: false, voice: false })
-  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_MODEL
+  delete process.env.FARMBUDDY_AI_MODEL
+  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
   await assert.rejects(assistantChat(input, {}), errorStatus(503))
   await assert.rejects(assistantSpeak({ text: 'Hello' }), errorStatus(503))
@@ -27,21 +35,55 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   assert.throws(() => validateChat({ ...input, image: 'data:image/jpeg;base64,iVBORw0KGgo=' }), errorStatus(400))
   assert.throws(() => validateChat({ ...input, image: 'x'.repeat(4200000) }), errorStatus(413))
   const imageRequest = validateChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' })
-  assert.equal(imageRequest.messages[0].content[1].type, 'input_image')
+  assert.equal(imageRequest.messages[0].content[0].type, 'text')
+  assert.deepEqual(imageRequest.messages[0].content[1], { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } })
+  assert.equal(imageRequest.messages[0].content[1].type, 'image_url')
   assert.throws(() => validateChat({ ...input, task: 'unknown' }), errorStatus(400))
   delete process.env.FARMBUDDY_AI_MODEL
-  process.env.OPENAI_API_KEY = 'test-secret-never-live'
+  process.env.OPENROUTER_API_KEY = 'test-secret-never-live'
   let request
   const result = await assistantChat(input, { farmType: 'crop', email: 'private@example.com' }, async (url, options) => {
     request = { url, options, body: JSON.parse(options.body) }
-    return Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'Inspect leaves and ask your extension officer.' }] }] })
+    return Response.json({ choices: [{ message: { content: 'Inspect leaves and ask your extension officer.' } }] })
   })
-  assert.equal(result.model, 'gpt-4.1-mini')
-  assert.equal(request.url, 'https://api.openai.com/v1/responses')
-  assert.equal(request.body.store, false)
+  assert.equal(result.text, 'Inspect leaves and ask your extension officer.')
+  assert.deepEqual(assistantStatus(), { chat: true, photo: true, voice: false })
+  await assistantChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' }, {}, async (_url, options) => {
+    const body = JSON.parse(options.body)
+    assert.deepEqual(body.messages[1].content, imageRequest.messages[0].content)
+    return Response.json({ choices: [{ message: { content: 'Photo observations are uncertain.' } }] })
+  })
+  process.env.FARMBUDDY_AI_MODEL = 'test/text-model'
+  assert.deepEqual(assistantStatus(), { chat: true, photo: false, voice: false })
+  await assert.rejects(assistantChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' }, {}, async () => assert.fail('Unsupported photo must not be sent')), errorStatus(503))
+  process.env.OPENROUTER_MODEL = 'openai/gpt-4.1-mini'
+  assert.equal(assistantStatus().photo, true)
+  process.env.OPENROUTER_MODEL = 'https://evil.example/model'
+  assert.equal(assistantStatus().chat, false)
+  await assert.rejects(assistantChat(input, {}, async () => assert.fail('Invalid model must not be sent')), errorStatus(503))
+  delete process.env.OPENROUTER_MODEL
+  delete process.env.FARMBUDDY_AI_MODEL
+  for (const status of [400, 401, 402, 403, 404, 422, 429, 500]) {
+    await assert.rejects(assistantChat(input, {}, async () => new Response('raw-provider-secret', { status })), error => error.statusCode === 502 && !error.message.includes('raw-provider-secret'))
+  }
+  for (const payload of [{}, { choices: [] }, { choices: [{ message: { content: {} } }] }, { error: { code: 402, message: 'raw-provider-secret' } }]) {
+    await assert.rejects(assistantChat(input, {}, async () => Response.json(payload)), error => error.statusCode === 502 && !error.message.includes('raw-provider-secret'))
+  }
+  await assert.rejects(assistantChat(input, {}, async () => new Response('x'.repeat(128001))), errorStatus(502))
+  await assert.rejects(assistantChat(input, {}, async () => { throw new DOMException('secret', 'TimeoutError') }), errorStatus(502))
+  const long = await assistantChat(input, {}, async () => Response.json({ choices: [{ message: { content: 'x'.repeat(7000) } }] }))
+  assert.equal(long.text.length, 6000)
+  assert.equal(result.model, 'openai/gpt-4.1-mini')
+  assert.equal(request.url, 'https://openrouter.ai/api/v1/chat/completions')
+  assert.equal(request.body.stream, false)
+  assert.equal(request.body.max_tokens, 1000)
+  assert.equal(request.options.redirect, 'error')
+  assert.ok(request.options.signal instanceof AbortSignal)
+  assert.equal(request.options.headers.Authorization, 'Bearer test-secret-never-live')
+  assert.equal(request.body.messages[0].role, 'system')
   assert.equal(request.body.tools, undefined)
-  assert.match(request.body.instructions, /Never give definitive/)
-  assert.ok(!request.body.instructions.includes('private@example.com'))
+  assert.match(request.body.messages[0].content, /Never give definitive/)
+  assert.ok(!request.body.messages[0].content.includes('private@example.com'))
   await assert.rejects(assistantChat(input, {}, async () => { throw new Error('test-secret-never-live upstream internals') }), error => error.statusCode === 502 && !error.message.includes('secret'))
   await assert.rejects(assistantChat(input, {}, async () => new Response('provider-private-key', { status: 401 })), error => error.statusCode === 502 && /credentials were rejected/.test(error.message) && !error.message.includes('provider-private-key'))
   await assert.rejects(assistantChat(input, {}, async () => new Response('quota-private-details', { status: 429 })), error => error.statusCode === 502 && /quota or billing/.test(error.message) && !error.message.includes('quota-private-details'))
@@ -60,11 +102,18 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   await assert.rejects(assistantSpeak({ text: 'Hello' }, async () => Response.json({ secret: 'hidden' })), errorStatus(502))
   for (let i = 0; i < 10; i++) assistantLimit('rate-test')
   assert.throws(() => assistantLimit('rate-test'), errorStatus(429))
-  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_MODEL
+  delete process.env.FARMBUDDY_AI_MODEL
+  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
 })
 
-test('local authenticated handlers return 401, disabled 503, malformed 400 and CSRF 403', async () => {
+test('local authenticated handlers return 401, disabled 503, malformed 400 and CSRF 403', async t => {
+  const keys = ['OPENROUTER_API_KEY', 'YARNGPT_API_KEY', 'FARMBUDDY_DATA_FILE']
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+  t.after(() => { for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key] } })
+  delete process.env.OPENROUTER_API_KEY
+  delete process.env.YARNGPT_API_KEY
   const directory = await mkdtemp(join(tmpdir(), 'farmbuddy-assistant-'))
   process.env.FARMBUDDY_DATA_FILE = join(directory, 'data.json')
   const { store } = await import('../server/utils/store.js')

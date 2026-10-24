@@ -153,7 +153,7 @@ async function chooseImage(event) {
   reader.readAsDataURL(file)
 }
 async function send() {
-  if (!status.value?.chat || busy.value || speaking.value || listening.value || !question.value.trim() || (image.value && !consent.value)) return
+  if (!status.value?.chat || busy.value || speaking.value || listening.value || !question.value.trim() || (image.value && (!consent.value || !status.value?.photo))) return
   busy.value = true
   error.value = ''
   controller = new AbortController()
@@ -205,16 +205,16 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
     </nav>
     <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
     <div v-show="workspace === 'chat'" class="companion-body">
-      <div v-if="statusError || !status || !status.chat || !status.voice" class="configuration-note" role="status">
+      <div v-if="statusError || !status || !status.chat || !status.photo || !status.voice" class="configuration-note" role="status">
         <p v-if="statusError">{{ statusError }}</p>
         <template v-if="status">
-          <p v-if="!status.chat"><strong>AI chat and photo analysis need a server connection.</strong> The site owner must add <code>OPENAI_API_KEY</code> to the server’s <code>.env</code> file and restart the app. Your question stays here until connected.</p>
+          <p v-if="!status.chat"><strong>AI chat and photo analysis need a server connection.</strong> The site owner must add <code>OPENROUTER_API_KEY</code> to the server’s <code>.env</code> file and restart the app. OpenRouter handles text and photo requests. Use a namespaced <code>OPENROUTER_MODEL</code> (or <code>FARMBUDDY_AI_MODEL</code>), default <code>openai/gpt-4.1-mini</code>. Your question stays here until connected.</p>
+          <p v-if="status.chat && !status.photo" class="mt-2">Photo support is not verified for the configured model. Written chat is available. The site owner can select <code>openai/gpt-4.1-mini</code> for photos.</p>
           <p v-if="!status.voice" class="mt-2">Spoken AI replies need <code>YARNGPT_API_KEY</code>. Browser dictation is separate and depends on your browser and microphone permission.</p>
         </template>
         <p class="mt-2">Never enter or share API keys in the chat. Phone microphone access may require HTTPS.</p>
         <button type="button" class="mt-3 rounded-lg border border-[#cad7c3] px-3 py-2 font-semibold" :disabled="checkingStatus" @click="refreshStatus">{{ checkingStatus ? 'Checking connection…' : 'Check connection again' }}</button>
       </div>
-      <p v-else-if="status && !status.photo" class="configuration-note">Photo analysis is unavailable. You can still send a written question.</p>
 
       <div v-if="!messages.length" class="welcome">
         <div class="welcome-emblem" aria-hidden="true"><Sprout :size="36" :stroke-width="1.4" /></div>
@@ -241,7 +241,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
           <div class="composer-heading"><label for="assistant-task">Help with</label><select id="assistant-task" v-model="task" :disabled="busy"><option value="chat">General farming</option><option value="plant-health">Plant health</option><option value="animal-health">Animal health</option><option value="identify-crop">Identify a crop</option></select><span>{{ question.length.toLocaleString() }} / 4,000</span></div>
           <label for="assistant-question" class="sr-only">Your question</label>
           <textarea id="assistant-question" ref="draft" v-model="question" maxlength="4000" rows="3" required :disabled="busy" placeholder="Tell me what you’ve noticed. What crop or animal, and for how long?" />
-          <div v-if="image" class="photo-review"><div class="photo-caption"><img :src="image" alt="Selected farm photo preview"><span>{{ filename }}</span><button type="button" class="icon-button" aria-label="Remove photo" :disabled="busy" @click="removeImage"><X :size="17" /></button></div><label><input v-model="consent" type="checkbox" :disabled="busy"> I consent to send this photo to OpenAI only when I press Send. Avoid people or private details.</label></div>
+          <div v-if="image" class="photo-review"><div class="photo-caption"><img :src="image" alt="Selected farm photo preview"><span>{{ filename }}</span><button type="button" class="icon-button" aria-label="Remove photo" :disabled="busy" @click="removeImage"><X :size="17" /></button></div><label><input v-model="consent" type="checkbox" :disabled="busy"> I consent to send this photo to OpenRouter and its routed model provider only when I press Send. Avoid people or private details.</label></div>
           <div class="composer-actions">
             <div class="input-tools">
               <input id="assistant-photo" ref="picker" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy || !status?.chat || !status?.photo" @change="chooseImage">
@@ -250,14 +250,14 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
               <template v-if="dictationSupported"><label for="assistant-dictation-language" class="sr-only">Dictation language</label><select id="assistant-dictation-language" v-model="dictationLanguage" :disabled="listening || busy || speaking"><option v-for="language in dictationLanguages" :key="language.code" :value="language.code">{{ language.label }}</option></select></template>
               <span v-else class="typing-fallback">Type your question</span>
             </div>
-            <button type="submit" class="send-button" :aria-label="image ? 'Send question and photo' : 'Send question'" :disabled="busy || speaking || listening || !status?.chat || !question.trim() || Boolean(image && !consent)"><span>Send</span><ArrowUpRight :size="19" /></button>
+            <button type="submit" class="send-button" :aria-label="image ? 'Send question and photo' : 'Send question'" :disabled="busy || speaking || listening || !status?.chat || !question.trim() || Boolean(image && (!consent || !status?.photo))"><span>Send</span><ArrowUpRight :size="19" /></button>
           </div>
         </form>
         <p v-if="dictationNotice" role="status" class="inline-notice">{{ dictationNotice }}</p>
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
         <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
-        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenAI. Read aloud shares answer text with YarnGPT.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
+        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Read aloud shares answer text with YarnGPT.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
       </div>
     </div>
   </section>
