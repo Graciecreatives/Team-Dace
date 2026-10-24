@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import { ref, computed, watch, reactive, effectScope } from 'vue'
+import { ref, computed, watch, reactive, effectScope, nextTick } from 'vue'
+import { createRasterMap, imageryDates } from '../utils/satellite-map.js'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import { weatherAdvice } from '../utils/farm-watch.js'
 
@@ -32,7 +33,11 @@ test('weather fieldboard script, template and scoped styles compile', () => {
   assert.deepEqual(parse(source).errors, [])
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: 'FarmWatch.vue', id: 'watch-redesign', compilerOptions: { bindingMetadata: compiled.bindings } }).errors, [])
   assert.deepEqual(compileStyle({ source: descriptor.styles[0].content, filename: 'FarmWatch.vue', id: 'watch-redesign', scoped: true }).errors, [])
-  assert.match(source, /weather-landscape.*aria-hidden="true"/)
+  assert.match(source, /class="map-workspace"/)
+  assert.match(source, /class="area-rail panel"/)
+  assert.match(source, /@point-select="selectMapPoint"/)
+  assert.doesNotMatch(descriptor.template.content, /type="number"|Enter approximate coordinates/)
+  assert.match(source, /forecast\.days\[0\]/)
   assert.match(source, /What this means for your farm/)
   assert.match(source, /No sample weather is shown/)
   assert.match(source, /v-else-if="weatherBusy"/)
@@ -45,6 +50,49 @@ test('weather fieldboard script, template and scoped styles compile', () => {
   assert.match(source, /'Use my location'/)
   assert.doesNotMatch(source, /Use my location &amp; get farm advice|Use my location & get farm advice|type="checkbox"/)
   assert.match(source, /<details><summary>Location privacy & report settings<\/summary>/)
+})
+
+test('map selection rounds point, invalidates geolocation, and refreshes both real services', async () => {
+  let success
+  const calls = []
+  const app = setup((path, options) => { calls.push(options); return Promise.resolve(path === '/api/weather' ? forecast : { items: [], sources: [] }) }, { getCurrentPosition(callback) { success = callback } })
+  app.state.locate()
+  app.state.selectMapPoint({ latitude: 12.345, longitude: 6.789 })
+  success({ coords: { latitude: 30, longitude: 40 } })
+  await flush()
+  assert.equal(calls.length, 2)
+  assert.equal(app.state.location.value.latitude, 12.3)
+  assert.equal(app.state.location.value.longitude, 6.8)
+  assert.equal(app.store.size, 0)
+  app.stop()
+})
+
+test('Use map center child callback updates parent area and sourced forecast rail data', async () => {
+  const calls = []
+  const app = setup((path, options) => { calls.push(options); return Promise.resolve(path === '/api/weather' ? forecast : { items: [], sources: [] }) })
+  const satelliteSource = readFileSync(new URL('../components/FarmSatelliteMap.vue', import.meta.url), 'utf8')
+  const childScript = compileScript(parse(satelliteSource).descriptor, { id: 'center-integration' }).content
+  const map = { setView() { return this }, on() { return this }, getCenter() { return { lat: 12.345, lng: 6.789 } }, remove() {}, invalidateSize() {} }
+  const L = { map: () => map, tileLayer() { return { on() { return this }, addTo() { return this }, off() {} } }, circleMarker() { return { addTo() { return this }, bindTooltip() { return this } } } }
+  let unmount
+  const scope = effectScope()
+  const context = vm.createContext({ ref, watch, nextTick, imageryDates, createRasterMap,
+    onBeforeUnmount(callback) { unmount = callback }, window: { matchMedia: () => ({ matches: true }) }, importLeaflet: () => Promise.resolve(L) })
+  vm.runInContext(childScript.replace(/^import .*$/gm, '').replace("import('leaflet')", 'importLeaflet()').replace('export default', 'globalThis.component ='), context)
+  const child = scope.run(() => context.component.setup({ point: null }, { expose() {}, emit(name, point) { assert.equal(name, 'point-select'); app.state.selectMapPoint(point) } }))
+  await child.chooseOnMap()
+  child.selectCenter()
+  await flush()
+  assert.equal(child.picking.value, false)
+  assert.equal(app.state.location.value.latitude, 12.3)
+  assert.equal(app.state.location.value.longitude, 6.8)
+  assert.equal(calls.length, 2)
+  assert.equal(app.state.forecast.value.days[0].max, 35)
+  assert.match(satelliteSource, /@click="selectCenter">Use map center/)
+  assert.match(source, /@point-select="selectMapPoint"/)
+  child.selectCenter()
+  assert.equal(calls.length, 2, 'center selection is one-shot')
+  unmount(); scope.stop(); app.stop()
 })
 
 test('condition identity is derived from actual forecast values, never fabricated temperature or sunshine', () => {

@@ -10,10 +10,10 @@ const { descriptor } = parse(source)
 const compiled = compileScript(descriptor, { id: 'plant-scan-ui' })
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)) }
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
-const response = (task = 'disease') => ({ provider: 'Pl@ntNet', task, status: 'suggestions', candidates: [{ name: 'Example', score: .42 }], notice: 'Limited coverage.' })
+const response = (task = 'identify') => ({ provider: 'Pl@ntNet', task, status: 'suggestions', candidates: [{ name: 'Example', score: .42 }], notice: 'Limited coverage.' })
 function setup(fetcher = () => Promise.resolve({ configured: true }), encodedPhoto = 'data:image/jpeg;base64,YWJj', imageDimensions = [2400, 1200]) {
   let mount, unmount
-  const scope = effectScope(), props = reactive({ user: { id: 'one' } }), revoked = [], canvases = [], images = []
+  const scope = effectScope(), props = reactive({ user: { id: 'one' } }), revoked = [], canvases = [], images = [], events = []
   class Image {
     naturalWidth = imageDimensions[0]
     naturalHeight = imageDimensions[1]
@@ -25,19 +25,30 @@ function setup(fetcher = () => Promise.resolve({ configured: true }), encodedPho
     document: { createElement() { const canvas = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage() { canvas.drawn = [canvas.width, canvas.height] } }), toDataURL: () => encodedPhoto }; canvases.push(canvas); return canvas } },
     onMounted: callback => { mount = callback }, onBeforeUnmount: callback => { unmount = callback }, $fetch: fetcher })
   vm.runInContext(compiled.content.replace(/^import .*$/gm, '').replace('export default', 'globalThis.component ='), context)
-  const state = scope.run(() => context.component.setup(props, { expose() {} }))
+  const state = scope.run(() => context.component.setup(props, { expose() {}, emit: (...args) => events.push(args) }))
   scope.run(() => mount())
-  return { state, props, revoked, canvases, images, stop() { unmount(); scope.stop() } }
+  return { state, props, revoked, canvases, images, events, stop() { unmount(); scope.stop() } }
 }
 const pick = app => app.state.choosePhoto({ target: { files: [{ type: 'image/png', size: 1000 }] } })
 
 test('script, inline template and styles compile with accessibility and honest evidence copy', () => {
   assert.deepEqual(parse(source).errors, [])
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: 'FarmScan.vue', id: 'plant-scan-ui', compilerOptions: { bindingMetadata: compiled.bindings } }).errors, [])
-  assert.deepEqual(compileStyle({ source: descriptor.styles[0].content, filename: 'FarmScan.vue', id: 'plant-scan-ui', scoped: true }).errors, [])
-  for (const pattern of [/aria-live="polite"/, /focus-visible/, /min-height:44px/, /prefers-reduced-motion:reduce/, /capture="environment"/, /Similarity\/model score, not chance of disease/, /Animal photos are not supported/, /Evidence basis:/]) assert.match(source, pattern)
-  assert.doesNotMatch(source, /<dialog|localStorage|defineEmits|\/api\/assistant/)
+  for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename: 'FarmScan.vue', id: 'plant-scan-ui', scoped: true }).errors, [])
+  for (const pattern of [/aria-live="polite"/, /focus-visible/, /min-height:48px/, /prefers-reduced-motion:reduce/, /capture="environment"/, /Similarity\/model score, not chance of disease/, /Animal photos are not supported/, /Evidence basis:/]) assert.match(source, pattern)
+  assert.doesNotMatch(source, /<dialog|localStorage|\/api\/assistant/)
   assert.doesNotMatch(source, /type="checkbox"|consent = ref/)
+  assert.match(source, /const task = ref\('identify'\)/)
+  assert.match(source, /Name this plant/)
+  assert.match(source, /Check a problem/)
+  assert.match(source, /min-height:48px/)
+  assert.match(source, /preventScroll: true/)
+  assert.match(source, /width:100%;max-width:900px/)
+  assert.match(source, /scan-empty.*!photos.length/)
+  assert.match(source, /<button v-if="photos.length" class="scan-send"/)
+  assert.match(source, /grid-template-columns:minmax\(0,1fr\) minmax\(0,1.1fr\)/)
+  assert.match(source, /\.scan-placeholder>svg\{height:140px\}/)
+  assert.match(source, /\.scan-pickers\{flex-direction:row;gap:8px/)
   assert.match(source, /Scan with Pl@ntNet/)
   assert.match(source, /<details class="scan-details"><summary>Details<\/summary>/)
   assert.match(source, /type="file" multiple/)
@@ -73,7 +84,7 @@ test('explicit Scan authorization and configuration gate exact POST, duplicate s
   assert.equal(calls.length, 1)
   const scan = app.state.scan(); await app.state.scan()
   assert.equal(calls.length, 2)
-  assert.equal(JSON.stringify(calls[1].body), JSON.stringify({ task: 'disease', images: [app.state.photo.value], organs: ['auto'], consent: true }))
+  assert.equal(JSON.stringify(calls[1].body), JSON.stringify({ task: 'identify', images: [app.state.photo.value], organs: ['auto'], consent: true }))
   assert.equal(calls[1].retry, 0)
   request.reject(new Error('Provider unavailable')); await scan
   assert.match(app.state.error.value, /Provider unavailable/)
@@ -94,7 +105,7 @@ test('account switch aborts and ignores old results, clears photos', async () =>
 test('mode change and removal invalidate requests, unmount prevents late updates', async () => {
   const requests = [], app = setup((path, options) => { if (!options.method) return Promise.resolve({ configured: true }); const request = deferred(); requests.push({ ...request, signal: options.signal }); return request.promise })
   await flush(); await pick(app)
-  const first = app.state.scan(); app.state.selectTask('identify')
+  const first = app.state.scan(); app.state.selectTask('disease')
   assert.equal(requests[0].signal.aborted, true)
   requests[0].resolve(response()); await first
   assert.equal(app.state.result.value, null)
@@ -271,6 +282,139 @@ test('only supported organs are offered and taxonomy details use supplied names 
   assert.equal(JSON.stringify(app.state.taxonomy(candidate)), JSON.stringify([{ label: 'Scientific name', name: 'Zea mays' }, { label: 'Genus', name: 'Zea' }, { label: 'Family', name: 'Poaceae' }]))
   assert.equal(app.state.taxonomy({ genus: { scientificNameWithoutAuthor: 'Zea' } })[0].name, 'Zea')
   assert.equal(app.state.taxonomy({ genus: {}, family: 7 }).length, 0)
-  assert.match(source, /<details v-if="taxonomy\(candidate\).length".*<summary>Plant details<\/summary>/)
+  assert.match(source, /taxonomy\(currentCandidate\)/)
+  assert.equal((descriptor.template.content.match(/<details/g) || []).length, 1)
+  assert.doesNotMatch(descriptor.template.content, /<select|<form|<dialog|type="text"/)
+  assert.match(source, /referrerpolicy="no-referrer" loading="lazy"/)
+  app.stop()
+})
+
+test('reference gallery accepts only exact provider image paths and caps images at three', async () => {
+  const app = setup(); await flush()
+  const valid = 'https://bs.plantnet.org/image/o/abcdef1234'
+  assert.equal(app.state.safeReferenceUrl(valid), valid)
+  for (const url of [null, {}, 'javascript:alert(1)', 'data:image/jpeg;base64,abc', 'http://bs.plantnet.org/image/o/abc', 'https://bs.plantnet.org.evil.test/image/o/abc', 'https://bs.plantnet.org@evil.test/image/o/abc', 'https://bs.plantnet.org/image/o/abc?x=1', 'https://bs.plantnet.org/image/o/abc#x', 'https://bs.plantnet.org/image/o/abc/extra', 'https://bs.plantnet.org/image/o/abc\n', 'https://bs.plantnet.org/image/o/%61bc', 'https://bs.plantnet.org/image/x/abc']) assert.equal(app.state.safeReferenceUrl(url), '')
+  app.state.result.value = { ...response(), candidates: [{ name: 'Plant', score: .5, images: [{ url: 'https://evil.test/photo.jpg' }, ...Array.from({ length: 5 }, (_, i) => ({ url: `https://bs.plantnet.org/image/s/abc${i}`, author: 'Botanist', license: 'CC BY-SA' }))] }] }
+  await flush()
+  assert.equal(app.state.referenceImages.value.length, 3)
+  app.state.selectImage(2)
+  assert.equal(app.state.referenceImage.value.url, 'https://bs.plantnet.org/image/s/abc2')
+  app.state.failReference(app.state.referenceImage.value.url)
+  assert.equal(app.state.failedImages.value.length, 1)
+  assert.match(source, /Reference photo unavailable/)
+  assert.doesNotMatch(source, /referenceImage[^\n]*\|\| photo/)
+  app.stop()
+})
+
+test('candidate changes reset reference choice, new results and account changes reset galleries', async () => {
+  const app = setup(); await flush(); await pick(app)
+  const images = ['abc', 'def'].map(id => ({ url: `https://bs.plantnet.org/image/m/${id}` }))
+  app.state.result.value = { ...response(), candidates: [{ name: 'First', score: .8, images }, { name: 'Second', score: .4, images }, { name: 'No image', score: .1 }] }
+  await flush(); app.state.selectImage(1); app.state.selectCandidate(1)
+  assert.equal(app.state.selectedImage.value, 0)
+  assert.equal(app.state.currentCandidate.value.name, 'Second')
+  app.state.selectCandidate(2)
+  assert.equal(app.state.referenceImages.value.length, 0)
+  assert.equal(app.state.referenceImage.value, undefined)
+  app.state.selectCandidate(1); app.state.selectImage(1)
+  app.state.failReference(images[1].url)
+  app.state.result.value = response(); await flush()
+  assert.equal(app.state.selectedCandidate.value, 0)
+  assert.equal(app.state.selectedImage.value, 0)
+  assert.equal(app.state.failedImages.value.length, 0)
+  app.props.user = { id: 'two' }
+  assert.equal(app.state.photos.value.length, 0)
+  assert.equal(app.state.referenceImages.value.length, 0)
+  assert.equal(app.state.selectedPhoto.value, 0)
+  app.stop()
+})
+
+test('same photo can be picked again and selection survives errors and pending scans', async () => {
+  const pending = deferred(), app = setup((path, options) => options.method ? pending.promise : Promise.resolve({ configured: true }))
+  await flush()
+  const target = { files: [{ type: 'image/jpeg', size: 1000 }], value: 'same-photo.jpg' }
+  await app.state.choosePhoto({ target })
+  assert.equal(target.value, '')
+  target.value = 'same-photo.jpg'; await app.state.choosePhoto({ target })
+  assert.equal(app.state.photos.value.length, 2)
+  app.state.selectPhoto(1)
+  const scan = app.state.scan()
+  assert.equal(app.state.sending.value, true)
+  app.state.selectPhoto(0)
+  assert.equal(app.state.sending.value, true)
+  pending.reject(new Error('Offline')); await scan
+  assert.equal(app.state.photos.value.length, 2)
+  assert.equal(app.state.selectedPhoto.value, 0)
+  assert.match(app.state.error.value, /Offline/)
+  app.state.removePhoto(0)
+  assert.equal(app.state.selectedPhoto.value, 0)
+  assert.ok(app.state.photo.value)
+  app.stop()
+})
+
+test('account switches abort configuration checks and photo preparation without leaking old state', async () => {
+  const checks = [], app = setup((path, options) => {
+    const request = deferred(); checks.push({ ...request, signal: options.signal }); return request.promise
+  })
+  app.props.user = { id: 'two' }
+  assert.equal(checks[0].signal.aborted, true)
+  checks[1].resolve({ configured: false }); await flush()
+  checks[0].resolve({ configured: true }); await flush()
+  assert.equal(app.state.configured.value, false)
+  const preparing = pick(app)
+  app.props.user = { id: 'three' }
+  await preparing
+  assert.equal(app.state.photos.value.length, 0)
+  assert.equal(app.state.preparing.value, false)
+  assert.equal(app.state.error.value, '')
+  assert.deepEqual(app.revoked, ['blob:local'])
+  checks.at(-1).resolve({ configured: true }); await flush()
+  assert.equal(app.state.configured.value, true)
+  assert.equal(app.state.canSend.value, false)
+  app.stop()
+})
+
+test('Ask FarmBuddyAI emits only on press with bounded selected context and never sends chat or photos', async () => {
+  const calls = [], payload = { ...response(), candidates: [{ name: 'First', score: .8 }, { name: 'Selected plant', score: .3, images: [{ url: 'https://bs.plantnet.org/image/o/abc', author: 'Private credit', license: 'CC BY' }] }] }
+  const app = setup((path, options) => { calls.push({ path, options }); return Promise.resolve(options.method ? payload : { configured: true }) })
+  await flush()
+  app.state.askAI()
+  assert.equal(app.events.length, 0)
+  await pick(app); await app.state.scan(); await flush()
+  app.state.selectCandidate(1)
+  assert.equal(app.events.length, 0)
+  const before = calls.length
+  app.state.askAI()
+  assert.equal(calls.length, before)
+  assert.equal(app.events.length, 1)
+  const [event, draft] = app.events[0]
+  assert.equal(event, 'ask-ai')
+  assert.equal(typeof draft, 'string')
+  assert.ok(draft.length <= 500)
+  assert.match(draft, /Pl@ntNet provider suggestion, not a diagnosis/)
+  assert.match(draft, /Task: Name this plant/)
+  assert.match(draft, /Selected suggestion: Selected plant/)
+  assert.match(draft, /0\.300/)
+  assert.match(draft, /What safe checks should I do next\?/)
+  assert.doesNotMatch(draft, /First|data:|base64|https:|Private credit|CC BY/)
+  assert.match(source, /@click="askAI">Ask FarmBuddyAI/)
+  app.props.user = { id: 'two' }; app.state.askAI()
+  assert.equal(app.events.length, 1)
+  app.stop()
+})
+
+test('AI handoff keeps disease task cautious and handles no match without inventing a candidate', async () => {
+  const app = setup(); await flush()
+  app.state.selectTask('disease')
+  app.state.result.value = { ...response('disease'), candidates: [{ name: 'Leaf spot ' + 'x'.repeat(600) + ' https://example.test/private', score: .2 }] }
+  await flush(); app.state.askAI()
+  assert.match(app.events[0][1], /Check a plant problem/)
+  assert.match(app.events[0][1], /not a diagnosis/)
+  assert.ok(app.events[0][1].length <= 500)
+  assert.doesNotMatch(app.events[0][1], /https?:|data:/)
+  app.state.result.value = { ...response('disease'), status: 'no-match', candidates: [] }
+  await flush(); app.state.askAI()
+  assert.match(app.events[1][1], /No match found/)
+  assert.doesNotMatch(app.events[1][1], /Selected suggestion|Model similarity score/)
   app.stop()
 })

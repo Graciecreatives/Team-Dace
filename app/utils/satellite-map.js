@@ -17,9 +17,15 @@ export function mapPoint(point) {
   return [Math.max(-85.05112878, Math.min(85.05112878, point.latitude)), point.longitude]
 }
 // Lifecycle adapter keeps old layer events and disposed maps from updating UI.
-export function createRasterMap(L, element, status, reducedMotion = false) {
+export function createRasterMap(L, element, status, reducedMotion = false, onPick = () => {}) {
   const map = L.map(element, { zoomAnimation: !reducedMotion, fadeAnimation: !reducedMotion }).setView([0, 20], 2)
-  let tiles, marker, disposed = false, serial = 0
+  let tiles, marker, disposed = false, serial = 0, picking = false, selectedPoint = null
+  function select(coordinates) {
+    if (disposed || !picking || !coordinates || !Number.isFinite(coordinates.lat) || !Number.isFinite(coordinates.lng)) return
+    picking = false
+    onPick({ latitude: Math.max(-85.05112878, Math.min(85.05112878, coordinates.lat)), longitude: Math.abs(coordinates.lng) <= 180 ? coordinates.lng : ((coordinates.lng + 180) % 360 + 360) % 360 - 180 })
+  }
+  map.on('click', event => select(event.latlng))
   function setLayer(mode, date) {
     if (disposed) return
     const config = rasterConfig(mode, date), token = ++serial
@@ -31,15 +37,16 @@ export function createRasterMap(L, element, status, reducedMotion = false) {
     tiles.on('loading', () => { loaded = 0; failed = 0; publish('Loading requested tiles…') })
     tiles.on('tileload', () => { loaded++ })
     tiles.on('tileerror', () => { failed++; publish('Some tiles unavailable. Try another date or road view.') })
-    tiles.on('load', () => publish(failed ? `${failed} tile request(s) failed. Coverage incomplete.` : loaded ? 'Tiles received for this view. Clouds or missing imagery may still obscure the area.' : 'No tiles received for this view.'))
+    tiles.on('load', () => publish(failed ? `${failed} tile request(s) failed. Coverage incomplete.` : loaded ? mode === 'satellite' ? 'Tiles received for this view. Clouds or missing imagery may still obscure the area.' : 'Road tiles received for this view. OpenStreetMap contributors.' : 'No tiles received for this view.'))
     tiles.addTo(map)
   }
   function setPoint(point) {
     const coordinates = mapPoint(point)
     if (!coordinates || disposed) return
+    selectedPoint = coordinates
     if (marker) marker.setLatLng(coordinates)
     else marker = L.circleMarker(coordinates, { radius: 8, color: '#fff', weight: 3, fillColor: '#c18b20', fillOpacity: 1 }).addTo(map).bindTooltip('Your approximate forecast area')
     map.setView(coordinates, 7, { animate: false })
   }
-  return { setLayer, setPoint, resize() { if (!disposed) map.invalidateSize() }, destroy() { if (disposed) return; disposed = true; serial++; if (tiles) tiles.off(); map.remove() } }
+  return { setLayer, setPoint, setPicking(value) { picking = Boolean(value) }, selectCenter() { if (!disposed && picking) select(map.getCenter()) }, recenter() { if (!disposed && selectedPoint) map.setView(selectedPoint, 7, { animate: false }) }, resize() { if (!disposed) map.invalidateSize() }, destroy() { if (disposed) return; disposed = true; serial++; if (tiles) tiles.off(); map.remove() } }
 }

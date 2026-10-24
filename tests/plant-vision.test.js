@@ -30,7 +30,7 @@ test('specialist multipart contract, true decoding, sanitized model scores and p
     const url = new URL(address)
     assert.equal(url.origin, 'https://my-api.plantnet.org')
     assert.equal(url.pathname, calls === 1 ? '/v2/diseases/identify' : '/v2/identify/all')
-    assert.deepEqual(Object.fromEntries(url.searchParams), { 'api-key': 'private-test-key', lang: 'en', 'nb-results': '3', 'include-related-images': 'false' })
+    assert.deepEqual(Object.fromEntries(url.searchParams), { 'api-key': 'private-test-key', lang: 'en', 'nb-results': '3', 'include-related-images': 'true' })
     assert.equal(options.method, 'POST')
     assert.equal(options.redirect, 'manual')
     assert.ok(options.signal instanceof AbortSignal)
@@ -60,6 +60,38 @@ test('specialist multipart contract, true decoding, sanitized model scores and p
   assert.equal(JSON.stringify(disease).includes('do-not-return'), false)
   const identify = await scanPlant({ ...input, task: 'identify' }, fetcher)
   assert.deepEqual(identify.candidates[0], { name: 'Maize', scientificName: 'Zea mays', commonNames: ['Maize'], genus: 'Zea', family: 'Poaceae', score: 0.8 })
+})
+
+test('reference images are genuine, attributed, bounded and restricted to provider HTTPS image paths', async t => {
+  restoreEnv(t, ['PLANTNET_API_KEY'])
+  process.env.PLANTNET_API_KEY = 'reference-test'
+  const medium = 'https://bs.plantnet.org/image/m/abc123'
+  const original = 'https://bs.plantnet.org/image/o/def456'
+  const image = { author: '<Ada>\u0000', license: 'cc-by-sa', citation: '<Provider citation>', organ: '<leaf>', url: { m: medium, o: original, s: 'https://bs.plantnet.org/image/s/abc123' }, private: 'not-returned' }
+  const hostile = [
+    'http://bs.plantnet.org/image/m/abc', 'https://evil.test/image/m/abc',
+    'https://bs.plantnet.org.evil.test/image/m/abc', 'https://bs.plantnet.org@evil.test/image/m/abc',
+    'https://user:pass@bs.plantnet.org/image/m/abc', 'https://bs.plantnet.org:443/image/m/abc',
+    medium + '?key=secret', medium + '?', medium + '#', medium + '/extra',
+    'https://bs.plantnet.org/image/m/%61bc', 'https://bs.plantnet.org/image/m/../abc',
+    'https://bs.plantnet.org/image/m/not-a-hash', '//bs.plantnet.org/image/m/abc',
+    'data:image/png;base64,AAAA', 'javascript:alert(1)', medium + '\n', medium + 'a'.repeat(300),
+  ].map(url => ({ ...image, url: { m: url } }))
+  const unattributed = [null, {}, { ...image, author: '' }, { ...image, author: '\u0000<>' }, { ...image, license: '' },
+    ...['copyright', 'cc-by-nc', 'cc-by-nd', 'cc-by-sa 9.0', 'cc-by<>', 'public domain', 'https://evil.test/cc-by'].map(license => ({ ...image, license }))]
+  for (const task of ['identify', 'disease']) {
+    const candidate = { name: 'APHISP', description: 'Aphids', score: 0.9, species: { scientificNameWithoutAuthor: 'Zea mays' } }
+    const results = [{ ...candidate, images: [...hostile, ...unattributed, image, { ...image, license: 'CC BY 4.0', url: { m: 'bad', o: original } }, { ...image, license: 'https://creativecommons.org/publicdomain/zero/1.0/', url: { s: medium.replace('/m/', '/s/') } }, image] }, { ...candidate, score: 0.8, images: [...hostile, ...unattributed] }, { ...candidate, score: 0.7 }]
+    const response = await scanPlant({ ...input, task }, async () => Response.json({ results }))
+    assert.deepEqual(response.candidates[0].images, [
+      { url: medium, author: 'Ada', license: 'cc-by-sa', citation: 'Provider citation', organ: 'leaf' },
+      { url: original, author: 'Ada', license: 'CC BY 4.0', citation: 'Provider citation', organ: 'leaf' },
+      { url: medium.replace('/m/', '/s/'), author: 'Ada', license: 'https://creativecommons.org/publicdomain/zero/1.0/', citation: 'Provider citation', organ: 'leaf' },
+    ])
+    assert.equal(Object.hasOwn(response.candidates[1], 'images'), false)
+    assert.equal(Object.hasOwn(response.candidates[2], 'images'), false)
+    assert.equal(JSON.stringify(response).includes('not-returned'), false)
+  }
 })
 
 test('no outbound calls without consent, valid bounded images and key', async t => {

@@ -24,7 +24,7 @@ test('fixed providers, exact NASA matrix and strict date/layer allowlist', () =>
 })
 function fakeLeaflet() {
   const layers = [], views = [], markers = []
-  const map = { removed: false, setView(...args) { views.push(args); return this }, removeLayer(layer) { layer.removed = true }, remove() { this.removed = true }, invalidateSize() {} }
+  const map = { events: {}, on(name, callback) { this.events[name] = callback; return this }, getCenter() { return { lat: 12.345, lng: 6.789 } }, removed: false, setView(...args) { views.push(args); return this }, removeLayer(layer) { layer.removed = true }, remove() { this.removed = true }, invalidateSize() {} }
   const L = { map: () => map, tileLayer(url, options) { const layer = { url, options, events: {}, on(name, callback) { this.events[name] = callback; return this }, off() { this.events = {} }, addTo() { return this } }; layers.push(layer); return layer }, circleMarker(point) { const marker = { point, addTo() { return this }, bindTooltip() { return this }, setLatLng(value) { this.point = value } }; markers.push(marker); return marker } }
   return { L, layers, map, views, markers }
 }
@@ -41,7 +41,7 @@ test('tile failures are explicit and stale events are ignored on replacement/dis
   old.load(); assert.equal(statuses.length, count)
   const current = fake.layers[1].events
   current.tileload(); current.load()
-  assert.match(statuses.at(-1), /Tiles received/)
+  assert.match(statuses.at(-1), /Road tiles received/)
   adapter.destroy()
   assert.equal(fake.map.removed, true)
   const after = statuses.length
@@ -60,6 +60,33 @@ test('location updates move existing approximate marker and never emit coordinat
   assert.ok(mapPoint({ latitude: 90, longitude: 180 })[0] < 86)
   adapter.destroy()
 })
+test('clicks and panning never select except in explicit one-shot pick mode, center supports keyboard', () => {
+  const fake = fakeLeaflet(), picks = []
+  const adapter = createRasterMap(fake.L, {}, () => {}, true, point => picks.push(point))
+  fake.map.events.click({ latlng: { lat: 5, lng: 8 } })
+  adapter.selectCenter()
+  assert.equal(picks.length, 0)
+  adapter.setPicking(true)
+  fake.map.setView([2, 3], 7)
+  assert.equal(picks.length, 0, 'panning alone must not change forecast')
+  fake.map.events.click({ latlng: { lat: 5, lng: 8 } })
+  assert.deepEqual(picks, [{ latitude: 5, longitude: 8 }])
+  fake.map.events.click({ latlng: { lat: 10, lng: 12 } })
+  assert.equal(picks.length, 1, 'pick mode ends after selection')
+  adapter.setPicking(true)
+  adapter.selectCenter()
+  assert.deepEqual(picks[1], { latitude: 12.345, longitude: 6.789 })
+  adapter.setPicking(true)
+  fake.map.events.click({ latlng: { lat: 5, lng: 368 } })
+  assert.deepEqual(picks.pop(), { latitude: 5, longitude: 8 })
+  adapter.setPicking(true)
+  adapter.setPicking(false)
+  adapter.selectCenter()
+  assert.equal(picks.length, 2)
+  adapter.destroy()
+  fake.map.events.click({ latlng: { lat: 5, lng: 8 } })
+  assert.equal(picks.length, 2)
+})
 test('satellite SFC compiles with consent gate, client-only import, cleanup and accessible narrow layout', () => {
   const source = readFileSync(new URL('../components/FarmSatelliteMap.vue', import.meta.url), 'utf8')
   const { descriptor, errors } = parse(source)
@@ -76,7 +103,12 @@ test('satellite SFC compiles with consent gate, client-only import, cleanup and 
   assert.match(source, /prefers-reduced-motion:reduce/)
   assert.match(source, /min-width:0/)
   assert.match(source, /not a claim of latest available imagery/)
-  assert.match(source, /'Load NASA map'/)
+  assert.match(source, /Open map/)
+  assert.match(source, /Use map center/)
+  assert.match(source, /mode = ref\('road'\)/)
+  assert.match(source, /<header class="map-header">[\s\S]*<legend class="sr-only">Map view<\/legend>[\s\S]*<\/fieldset><\/div><\/header>/)
+  assert.match(source, /<p v-if="mode === 'satellite'" class="caption satellite-caption">/)
+  assert.match(source, /\.map-header \.tools\{margin:0\}/)
   assert.match(source, /Regional satellite image, not a crop diagnosis\./)
   assert.match(source, /Requested day: \$\{date\} UTC/)
   assert.match(source, /<details><summary>Map privacy, sources & limits<\/summary>/)
@@ -88,6 +120,7 @@ function setupSatellite(importer) {
   const script = compileScript(parse(source).descriptor, { id: 'satellite-runtime' }).content
   const props = reactive({ point: null }), scope = effectScope()
   let unmount, imports = 0, disconnects = 0
+  const emitted = []
   const fake = fakeLeaflet()
   const context = vm.createContext({ ref, watch, nextTick, imageryDates, createRasterMap,
     onBeforeUnmount(callback) { unmount = callback },
@@ -95,8 +128,8 @@ function setupSatellite(importer) {
     ResizeObserver: class { observe() {} disconnect() { disconnects++ } },
     importLeaflet() { imports++; return importer ? importer() : Promise.resolve(fake.L) } })
   vm.runInContext(script.replace(/^import .*$/gm, '').replace("import('leaflet')", 'importLeaflet()').replace('export default', 'globalThis.component ='), context)
-  const state = scope.run(() => context.component.setup(props, { expose() {} }))
-  return { state, props, fake, imports: () => imports, disconnects: () => disconnects, stop() { unmount(); scope.stop() } }
+  const state = scope.run(() => context.component.setup(props, { expose() {}, emit: (...args) => emitted.push(args) }))
+  return { state, props, fake, emitted, imports: () => imports, disconnects: () => disconnects, stop() { unmount(); scope.stop() } }
 }
 test('actual component has no tile/import requests until Load, then moves point and unloads cleanly', async () => {
   const app = setupSatellite()
@@ -116,6 +149,18 @@ test('actual component has no tile/import requests until Load, then moves point 
   assert.equal(app.fake.map.removed, true)
   assert.equal(app.disconnects(), 1)
   assert.equal(app.state.consent.value, false)
+  app.stop()
+})
+test('Choose on map loads only on action and emits the actual clicked point once', async () => {
+  const app = setupSatellite()
+  assert.equal(app.imports(), 0)
+  await app.state.chooseOnMap()
+  assert.equal(app.imports(), 1)
+  assert.equal(app.state.picking.value, true)
+  app.fake.map.events.click({ latlng: { lat: 7.456, lng: 3.987 } })
+  assert.equal(app.emitted[0][0], 'point-select')
+  assert.equal(app.emitted[0][1].latitude, 7.456)
+  assert.equal(app.state.picking.value, false)
   app.stop()
 })
 test('unmount during Leaflet import prevents late map creation and import failure is recoverable', async () => {

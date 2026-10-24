@@ -75,6 +75,24 @@ async function responseJSON(response, limit = RESPONSE_LIMIT) {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'))
   } finally { await reader.cancel().catch(() => {}) }
 }
+function referenceImages(value) {
+  if (!Array.isArray(value)) return {}
+  const images = []
+  for (const image of value) {
+    const author = clean(image?.author), license = clean(image?.license, 120)
+    // Accept only supported, explicit CC identifiers or their canonical URLs.
+    const cc = /^(?:cc[- ]by(?:[- ]sa)?(?:[- ](?:1\.0|2\.0|2\.5|3\.0|4\.0))?|cc0(?:[- ]1\.0)?)$/i
+    const ccURL = /^https?:\/\/creativecommons\.org\/(?:licenses\/by(?:-sa)?\/(?:1\.0|2\.0|2\.5|3\.0|4\.0)|publicdomain\/zero\/1\.0)\/?$/i
+    if (!author || !license || image.license.trim() !== license || (!cc.test(license) && !ccURL.test(license))) continue
+    // Match the raw string, not a normalized URL, to reject credentials, ports,
+    // escaped paths, query strings and fragments (including empty ones).
+    const url = ['m', 'o', 's'].map(size => image?.url?.[size]).find(value => typeof value === 'string' && value.length <= 256 && /^https:\/\/bs\.plantnet\.org\/image\/(?:s|m|o)\/[a-f0-9]+$(?![\s\S])/i.test(value))
+    if (!url) continue
+    images.push({ url, author, license, citation: clean(image.citation, 360), organ: clean(image.organ, 40) })
+    if (images.length === 3) break
+  }
+  return images.length ? { images } : {}
+}
 function resultsFor(result, task, labels = new Map()) {
   if (!Array.isArray(result.results)) throw new Error()
   return result.results.slice(0, 20).flatMap(item => {
@@ -82,14 +100,14 @@ function resultsFor(result, task, labels = new Map()) {
     if (task === 'disease') {
       const code = clean(item.name, 32)
       if (!/^[A-Z0-9]+$/.test(code)) return []
-      return [{ name: clean(item.description) || labels.get(code) || code, code, score: item.score }]
+      return [{ name: clean(item.description) || labels.get(code) || code, code, score: item.score, ...referenceImages(item.images) }]
     }
     const scientificName = clean(item.species?.scientificNameWithoutAuthor)
     if (!scientificName) return []
     const commonNames = Array.isArray(item.species?.commonNames) ? item.species.commonNames.slice(0, 3).map(name => clean(name)).filter(Boolean) : []
     const genus = clean(item.species?.genus?.scientificNameWithoutAuthor)
     const family = clean(item.species?.family?.scientificNameWithoutAuthor)
-    return [{ name: commonNames[0] || scientificName, scientificName, commonNames, ...(genus ? { genus } : {}), ...(family ? { family } : {}), score: item.score }]
+    return [{ name: commonNames[0] || scientificName, scientificName, commonNames, ...(genus ? { genus } : {}), ...(family ? { family } : {}), score: item.score, ...referenceImages(item.images) }]
   }).sort((a, b) => b.score - a.score).slice(0, 3)
 }
 // A single bounded catalogue, never keyed by user, photo or private API key.
@@ -132,7 +150,7 @@ export async function scanPlant(input, fetcher = fetch) {
     form.append('organs', image.organ)
   }
   const url = new URL(input.task === 'disease' ? 'https://my-api.plantnet.org/v2/diseases/identify' : 'https://my-api.plantnet.org/v2/identify/all')
-  url.search = new URLSearchParams({ 'api-key': apiKey(), lang: 'en', 'nb-results': '3', 'include-related-images': 'false' }).toString()
+  url.search = new URLSearchParams({ 'api-key': apiKey(), lang: 'en', 'nb-results': '3', 'include-related-images': 'true' }).toString()
   let stage = 'request'
   let providerStatus
   try {
