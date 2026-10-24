@@ -1,3 +1,4 @@
+import { readBoundedBytes } from './request-body.js'
 import { assistantProfile, validateContextFlags } from './assistant-context.js'
 import { retrieveAssistantKnowledge } from './assistant-knowledge.js'
 import { randomUUID } from 'node:crypto'
@@ -36,16 +37,9 @@ function providerError(status, name) {
 }
 export async function assistantBody(event, limit = 4 * 1024 * 1024 + 100000) {
   if ((getHeader(event, 'content-type') || '').split(';')[0].trim().toLowerCase() !== 'application/json') fail(415, 'Expected application/json')
-  if (Number(getHeader(event, 'content-length')) > limit) fail(413, 'Request too large')
-  const chunks = []
-  let size = 0
-  for await (const chunk of event.node.req.iterator({ destroyOnReturn: false })) {
-    size += Buffer.byteLength(chunk)
-    if (size > limit) { event.node.req.resume(); fail(413, 'Request too large') }
-    chunks.push(Buffer.from(chunk))
-  }
+  const bytes = await readBoundedBytes(event, limit)
   let input
-  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { fail(400, 'Invalid JSON') }
+  try { input = JSON.parse(bytes.toString('utf8')) } catch { fail(400, 'Invalid JSON') }
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail(400, 'Expected an object')
   return input
 }

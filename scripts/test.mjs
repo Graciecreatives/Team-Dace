@@ -12,7 +12,7 @@ const units = [
   ...readdirSync('app/tests').filter(file => file.endsWith('.test.mjs')).map(file => `app/tests/${file}`),
   ...readdirSync('tests').filter(file => file.endsWith('.test.js')).map(file => `tests/${file}`),
 ]
-for (const args of [['server/tests/integration.mjs'], ['server/tests/location.mjs'], ['--test', ...units]]) {
+for (const args of [['server/tests/integration.mjs'], ['server/tests/location.mjs'], ['--test', ...units], ['--test', 'server/tests/auth-workers.mjs']]) {
   const result = spawnSync(process.execPath, args, { env, stdio: 'inherit' })
   if (result.error) { console.error('Could not start local test process'); process.exit(1) }
   if (result.status !== 0) process.exit(result.status || 1)

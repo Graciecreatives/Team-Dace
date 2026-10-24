@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "farmbuddy",
   "account_id": "eedfbfafc0fb362af6380bb4c1286c7b",
-  "main": ".output/server/index.mjs",
+  "main": "cloudflare/worker.mjs",
   "compatibility_date": "2026-10-24",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
