@@ -232,44 +232,65 @@ export default defineEventHandler(async event => {
       return { records: data.records.filter(item => item.userId === user.id).map(publicRecord), reminders: data.reminders.filter(item => item.userId === user.id).map(publicRecord) }
     })
   }
-  const recordDelete = path.match(/^\/api\/farm\/records\/([a-f0-9-]{36})$/)
-  const reminderPatch = path.match(/^\/api\/farm\/reminders\/([a-f0-9-]{36})$/)
-  if ((method === 'POST' && ['/api/farm/records', '/api/farm/reminders'].includes(path)) || (method === 'DELETE' && recordDelete) || (method === 'PATCH' && reminderPatch)) {
-    // Authenticate before accepting potentially expensive or malformed bodies.
+  const farmItem = path.match(/^\/api\/farm\/(records|reminders)\/([a-f0-9-]{36})$/)
+  if ((method === 'POST' && ['/api/farm/records', '/api/farm/reminders'].includes(path)) || (['PATCH', 'DELETE'].includes(method) && farmItem)) {
     await store(data => authenticated(data, event))
     const input = method === 'DELETE' ? {} : await body(event)
+    const collection = farmItem?.[1] || (path.endsWith('/records') ? 'records' : 'reminders')
+    const isRecord = collection === 'records'
+    const writable = isRecord ? ['title', 'category', 'amount', 'note'] : ['title', 'date', 'completed']
+    if (Object.keys(input).some(key => !writable.includes(key) && !(method === 'PATCH' && key === 'expectedUpdatedAt'))) fail(400, 'Unknown farm field')
+    if (Object.hasOwn(input, 'expectedUpdatedAt') && (typeof input.expectedUpdatedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(input.expectedUpdatedAt) || !Number.isFinite(Date.parse(input.expectedUpdatedAt)) || new Date(input.expectedUpdatedAt).toISOString() !== input.expectedUpdatedAt)) fail(400, 'Invalid expectedUpdatedAt')
+    const fields = {}
+    if (method === 'PATCH' && !writable.some(key => Object.hasOwn(input, key))) fail(400, 'No fields to update')
+    if (method !== 'DELETE') {
+      if (method === 'POST' || Object.hasOwn(input, 'title')) fields.title = profileText(input.title, 'title', 200)
+      if (isRecord) {
+        if (method === 'POST' || Object.hasOwn(input, 'category')) {
+          if (!['income', 'expense', 'activity'].includes(input.category)) fail(400, 'Invalid category')
+          fields.category = input.category
+        }
+        if (method === 'POST' || Object.hasOwn(input, 'amount')) {
+          if (input.amount === undefined && method === 'POST') fields.amount = null
+          else {
+            if (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || input.amount < 0 || input.amount > 1e12) fail(400, 'Invalid amount')
+            fields.amount = input.amount
+          }
+        }
+        if (method === 'POST' || Object.hasOwn(input, 'note')) fields.note = profileText(input.note, 'note', 2000, true)
+      } else {
+        if (method === 'POST' || Object.hasOwn(input, 'date')) {
+          const date = text(input.date, 'date', 10)
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date.startsWith('0000')) fail(400, 'Invalid date (expected YYYY-MM-DD)')
+          fields.date = date
+        }
+        if (Object.hasOwn(input, 'completed')) {
+          if (typeof input.completed !== 'boolean') fail(400, 'Invalid completed')
+          fields.completed = input.completed
+        }
+      }
+    }
     return store(data => {
       const user = authenticated(data, event)
-      if (method === 'DELETE') {
-        const index = data.records.findIndex(item => item.id === recordDelete[1] && item.userId === user.id)
-        if (index < 0) fail(404, 'Record not found')
-        if (data.records[index].sourceId) fail(409, 'Linked workflow records cannot be deleted independently of their source')
-        data.records.splice(index, 1)
-        return { ok: true }
+      const singular = isRecord ? 'record' : 'reminder'
+      if (method !== 'POST') {
+        const index = data[collection].findIndex(item => item.id === farmItem[2] && item.userId === user.id)
+        if (index < 0) fail(404, `${singular} not found`)
+        const item = data[collection][index]
+        if (isRecord && item.sourceId) fail(409, 'Linked workflow records cannot be changed independently of their source')
+        if (method === 'DELETE') {
+          data[collection].splice(index, 1)
+          return { ok: true }
+        }
+        if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== item.updatedAt) fail(409, 'Item changed since last sync. Reload before editing.')
+        const previous = Date.parse(item.updatedAt || item.createdAt)
+        Object.assign(item, fields, { updatedAt: new Date(Math.max(Date.now(), Number.isFinite(previous) ? previous + 1 : 0)).toISOString() })
+        return { [singular]: publicRecord(item) }
       }
-      if (method === 'PATCH') {
-        if (typeof input.completed !== 'boolean') fail(400, 'Invalid completed')
-        const reminder = data.reminders.find(item => item.id === reminderPatch[1] && item.userId === user.id)
-        if (!reminder) fail(404, 'Reminder not found')
-        reminder.completed = input.completed
-        return { reminder: publicRecord(reminder) }
-      }
-      const title = text(input.title, 'title', 200)
-      if (path.endsWith('/records')) {
-        if (!['income', 'expense', 'activity'].includes(input.category)) fail(400, 'Invalid category')
-        const amount = input.amount === undefined ? null : input.amount
-        if (amount !== null && (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || amount > 1e12)) fail(400, 'Invalid amount')
-        if (input.amount === null) fail(400, 'Invalid amount')
-        const note = text(input.note, 'note', 2000, true)
-        const record = { id: randomUUID(), userId: user.id, title, category: input.category, amount, note, createdAt: new Date().toISOString() }
-        data.records.push(record)
-        return { record: publicRecord(record) }
-      }
-      const date = text(input.date, 'date', 10)
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date.startsWith('0000')) fail(400, 'Invalid date (expected YYYY-MM-DD)')
-      const reminder = { id: randomUUID(), userId: user.id, title, date, completed: false }
-      data.reminders.push(reminder)
-      return { reminder: publicRecord(reminder) }
+      const now = new Date().toISOString()
+      const item = { id: randomUUID(), userId: user.id, ...(!isRecord ? { completed: false } : {}), ...fields, createdAt: now, updatedAt: now }
+      data[collection].push(item)
+      return { [singular]: publicRecord(item) }
     }, true)
   }
   if (method === 'GET' && path === '/api/tools') {
