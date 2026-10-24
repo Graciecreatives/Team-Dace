@@ -6,11 +6,12 @@ export function useFarmWorkspace(user) {
   let generation = 0, mounted = false, controller
   const identity = computed(() => user.value?.id || '')
   function persist() {
-    if (!enabled.value) return
+    if (!enabled.value) return true
     try {
       const cache = state.value ? { ...state.value, result: undefined } : null
       writeWorkspace(window.localStorage, identity.value, farmId.value, { queue: queue.value, cache })
-    } catch (cause) { error.value = `${cause.message}. Keep this page open and copy important drafts.` }
+      return true
+    } catch (cause) { error.value = `${cause.message}. Keep this page open and copy important drafts.`; return false }
   }
   function apply(response) {
     state.value = response
@@ -52,7 +53,7 @@ export function useFarmWorkspace(user) {
     error.value = ''
     if (!value) {
       if (queue.value.length) { error.value = 'Sync or discard device drafts before disabling device storage.'; return }
-      try { window.localStorage.removeItem(workspaceKey(identity.value, farmId.value)) } catch {}
+      try { window.localStorage.removeItem(workspaceKey(identity.value, farmId.value)) } catch { error.value = 'Device storage could not be cleared. Keep this device private and try again.'; return }
       enabled.value = false
       return
     }
@@ -61,7 +62,7 @@ export function useFarmWorkspace(user) {
       queue.value = local.queue
       if (!state.value && local.cache) { state.value = local.cache; stale.value = true }
       enabled.value = true
-      persist()
+      if (!persist()) enabled.value = false
     } catch (cause) { error.value = cause.message }
   }
   async function send(input) {
@@ -75,7 +76,11 @@ export function useFarmWorkspace(user) {
     const canQueue = enabled.value && offlineActions.includes(input.action)
     if (!online.value && !canQueue) { error.value = 'This action needs a connection. Enable device drafts for offline observations, harvests and task updates.'; return }
     if (canQueue) {
-      try { queue.value = enqueueCommand(queue.value, input); persist() } catch (cause) { error.value = cause.message; return }
+      const previous = queue.value
+      try {
+        queue.value = enqueueCommand(previous, input)
+        if (!persist()) { queue.value = previous; return }
+      } catch (cause) { queue.value = previous; error.value = cause.message; return }
     }
     if (!online.value) { message.value = 'Draft saved on this device. Server stock and finances have not changed. Review and sync when online.'; return }
     const current = generation
@@ -110,7 +115,7 @@ export function useFarmWorkspace(user) {
       if (current === generation && mounted) error.value = cause.data?.statusMessage || 'Sync paused. Pending commands keep their IDs. Check permissions and available stock, then retry.'
     } finally { if (current === generation) busy.value = false }
   }
-  function discard(id) { queue.value = queue.value.filter(row => row.commandId !== id); persist() }
+  function discard(id) { const previous = queue.value; queue.value = previous.filter(row => row.commandId !== id); if (!persist()) queue.value = previous }
   function connectivity() { online.value = navigator.onLine }
   watch(identity, () => { reset(); farmId.value = identity.value; if (mounted) load() }, { flush: 'sync' })
   onMounted(() => { mounted = true; farmId.value = identity.value; connectivity(); window.addEventListener('online', connectivity); window.addEventListener('offline', connectivity); load() })

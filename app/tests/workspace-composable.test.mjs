@@ -14,9 +14,36 @@ function harness(fetcher) {
   const user = ref({ id: 'owner' })
   const controller = scope.run(() => new Function(...Object.keys(deps), `${source};return useFarmWorkspace`)(...Object.values(deps))(user))
   mounted.forEach(fn => fn())
-  return { controller, user, navigator, values, offline: () => { navigator.onLine = false; listeners.get('offline')() }, online: () => { navigator.onLine = true; listeners.get('online')() }, stop: () => { unmounted.forEach(fn => fn()); scope.stop() } }
+  return { controller, user, navigator, values, storage: window.localStorage, offline: () => { navigator.onLine = false; listeners.get('offline')() }, online: () => { navigator.onLine = true; listeners.get('online')() }, stop: () => { unmounted.forEach(fn => fn()); scope.stop() } }
 }
 const view = id => ({ farm: { id, role: 'owner' }, farms: [{ id, name: id, role: 'owner' }], planning: { seasons: [], plots: [], events: [] }, operations: { tasks: [] }, inventory: [] })
+test('quota failures never announce an offline draft as saved or silently discard it', async () => {
+  const h = harness(async () => view('owner'))
+  try {
+    await tick()
+    const set = h.storage.setItem
+    h.storage.setItem = () => { throw Error('Storage full') }
+    h.controller.enableDevice(true)
+    assert.equal(h.controller.enabled.value, false)
+    assert.match(h.controller.error.value, /Storage full/)
+    h.storage.setItem = set
+    h.controller.enableDevice(true); h.offline()
+    await h.controller.command({ action: 'harvest.create', quantity: 5 })
+    const id = h.controller.queue.value[0].commandId
+    h.storage.setItem = () => { throw Error('Storage full') }
+    await h.controller.command({ action: 'harvest.create', quantity: 8 })
+    assert.equal(h.controller.queue.value.length, 1)
+    assert.equal(h.controller.message.value, '')
+    h.controller.discard(id)
+    assert.equal(h.controller.queue.value[0].commandId, id)
+    h.storage.setItem = set
+    h.controller.discard(id)
+    h.storage.removeItem = () => { throw Error('Blocked') }
+    h.controller.enableDevice(false)
+    assert.equal(h.controller.enabled.value, true)
+    assert.match(h.controller.error.value, /could not be cleared/)
+  } finally { h.stop() }
+})
 test('actual workspace composable keeps offline commands pending and syncs with unchanged IDs', async () => {
   const sent = []
   const h = harness(async (url, options) => { if (options.method === 'POST') sent.push(options.body); return view('owner') })
