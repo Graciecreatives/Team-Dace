@@ -246,7 +246,7 @@ onUnmounted(() => {
 
         <FarmSettings v-if="section === 'settings'" :user="user" :logging-out="loggingOut" :on-profile-saved="profileSaved" @logout="logout" />
         <FarmMarketplace v-if="section === 'marketplace'" :user="user" />
-        <FarmWorkspace v-if="['planning', 'operations', 'business', 'team'].includes(section)" :user="user" :section="section" @changed="refreshFarm" />
+        <FarmWorkspace v-if="['planning', 'operations', 'business', 'team'].includes(section)" :user="user" :section="section" @changed="refreshFarm" @navigate="chooseSection" />
         <FarmJournal v-if="['records', 'reminders'].includes(section)" :mode="section" :records="records" :reminders="reminders" :busy="busy" :deleting="deleting" :pending-reminder="pendingReminder" :user-id="user.id" @add-record="openDialog('record')" @add-reminder="openDialog('reminder')" @edit-record="editRecord" @delete-record="deleteRecord" @edit-reminder="editReminder" @delete-reminder="deleteReminder" @toggle-reminder="toggleReminder" />
         <FarmBookkeeping v-if="section === 'bookkeeping'" :records="records" :deleting="deleting" :user-id="user.id" :busy="busy" @add-entry="addBookkeepingEntry" @edit-entry="editRecord" @delete-entry="deleteRecord" />
         <FarmManagement v-if="['enterprises', 'inventory'].includes(section)" :key="section" :section="section" :user="user" />

@@ -113,6 +113,9 @@ test('business Vue component compiles script, template and print styles', async 
   assert.ok(source.includes("send('orders.record', sale)"))
   assert.ok(source.includes('prefers-reduced-motion:reduce'))
   assert.ok(!source.includes('Harvest to cash workflow'), 'text-heavy workflow has been replaced with action tiles')
+  assert.ok(source.includes('aria-label="Get ready to record"'))
+  assert.ok(source.includes('v-if="!stock.length && canAddStock"'), 'inventory navigation is only shown for the current user’s farm')
+  assert.ok(!source.includes('Create a season in Production and a stock item in Inventory before'))
   for (const name of ['harvest', 'sale', 'expense']) assert.ok(source.includes(`<template v-if="activeTab === '${name}'">`))
   assert.ok(!source.includes('farm currency'))
   assert.deepEqual(errors, [])
@@ -123,8 +126,9 @@ test('business Vue component compiles script, template and print styles', async 
 test('business mounted lifecycle preserves in-flight edits and scopes successful receipts', async () => {
   const source = await readFile(new URL('../app/components/FarmBusiness.vue', import.meta.url), 'utf8')
   const { descriptor } = parse(source)
-  const props = Vue.reactive({ state: {}, busy: false })
+  const props = Vue.reactive({ state: {}, busy: false, currentUserId: 'owner' })
   const commands = []
+  const navigation = []
   const compiled = compileScript(descriptor, { id: 'business-lifecycle' }).content
     .replace(/^import \{([^}]+)\} from 'vue'\n/m, 'const {$1} = Vue\n')
     .replace(/^import .* from .*\n/gm, '')
@@ -142,7 +146,7 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
   component.setup = (props, context) => { drafts = setup(props, context); return drafts }
   component.render = () => null
   const app = renderer.createApp({ setup() {
-    return () => Vue.h(component, { state: props.state, busy: props.busy, onCommand: payload => commands.push(payload) })
+    return () => Vue.h(component, { state: props.state, busy: props.busy, currentUserId: props.currentUserId, onCommand: payload => commands.push(payload), onNavigate: destination => navigation.push(destination) })
   } })
   app.mount({})
   try {
@@ -290,6 +294,40 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     props.state = { farm: { id: 'new-farm' }, lastCommandId: 'late', result: { action: 'harvest.create' } }
     await Vue.nextTick()
     assert.equal(drafts.harvest.note, 'New farm draft')
+    props.state = { farm: { id: 'owner' }, business: {}, planning: { seasons: [] }, inventory: [] }
+    await Vue.nextTick()
+    assert.equal(drafts.canAddStock.value, true)
+    drafts.sale.customer = 'Keep while navigating'
+    drafts.navigatePrerequisite('planning')
+    drafts.navigatePrerequisite('inventory')
+    assert.deepEqual(navigation, ['planning', 'inventory'], 'prerequisite buttons emit exact workspace destination strings')
+    assert.equal(drafts.sale.customer, 'Keep while navigating', 'navigation does not discard the sale draft')
+    props.busy = true
+    await Vue.nextTick()
+    drafts.navigatePrerequisite('planning')
+    drafts.navigatePrerequisite('inventory')
+    assert.equal(navigation.length, 2, 'busy commands prevent prerequisite navigation')
+    props.busy = false
+    props.state = { farm: { id: 'shared-farm' }, business: {}, planning: { seasons: [] }, inventory: [] }
+    await Vue.nextTick()
+    assert.equal(drafts.canAddStock.value, false, 'another farm cannot navigate to personal inventory')
+    drafts.navigatePrerequisite('inventory')
+    drafts.navigatePrerequisite('planning')
+    assert.deepEqual(navigation, ['planning', 'inventory', 'planning'], 'shared farm planning remains actionable without misleading inventory navigation')
+    props.currentUserId = ''
+    props.state = { business: {}, planning: { seasons: [{ id: 'season' }] }, inventory: [{ id: 'stock' }] }
+    await Vue.nextTick()
+    assert.equal(drafts.canAddStock.value, false, 'missing identity never grants inventory navigation')
+    drafts.navigatePrerequisite('planning')
+    drafts.navigatePrerequisite('inventory')
+    drafts.navigatePrerequisite('unknown')
+    assert.equal(navigation.length, 3, 'completed prerequisites and unknown destinations do not navigate')
+    props.state = { farm: { id: 'owner' }, business: null }
+    props.currentUserId = 'owner'
+    await Vue.nextTick()
+    drafts.navigatePrerequisite('planning')
+    drafts.navigatePrerequisite('inventory')
+    assert.equal(navigation.length, 3, 'restricted business view has no navigation actions')
   } finally { app.unmount() }
 })
 test('real management HTTP cash-sale lifecycle, replay, rollback and authentication', async () => {

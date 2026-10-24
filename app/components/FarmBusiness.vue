@@ -4,12 +4,18 @@ import { newCommandId } from '../utils/offline-workspace.js'
 import FbButton from './ui/FbButton.vue'
 import FbPageHeader from './ui/FbPageHeader.vue'
 import { Sprout, Package, Receipt, Banknote, Plus, Truck, Printer } from 'lucide-vue-next'
-const props = defineProps({ state: { type: Object, required: true }, busy: Boolean, commandError: { type: String, default: '' } })
-const emit = defineEmits(['command'])
+const props = defineProps({ state: { type: Object, required: true }, busy: Boolean, commandError: { type: String, default: '' }, currentUserId: { type: String, default: '' } })
+const emit = defineEmits(['command', 'navigate'])
 const today = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` }
 const seasons = computed(() => props.state.planning?.seasons || [])
 const stock = computed(() => props.state.inventory || [])
 const business = computed(() => props.state.business)
+const canAddStock = computed(() => Boolean(props.currentUserId && props.state.farm?.id === props.currentUserId))
+function navigatePrerequisite(destination) {
+  if (props.busy || !business.value) return
+  if (destination === 'planning' && !seasons.value.length) emit('navigate', 'planning')
+  if (destination === 'inventory' && !stock.value.length && canAddStock.value) emit('navigate', 'inventory')
+}
 const emptyHarvest = () => ({ seasonId: '', inventoryId: '', quantity: '', date: today(), note: '' })
 const emptySale = () => ({ seasonId: '', inventoryId: '', quantity: '', unitPrice: '', customer: '', date: today(), productId: '' })
 const emptyExpense = () => ({ seasonId: '', amount: '', title: '', date: today(), note: '' })
@@ -148,7 +154,11 @@ async function print(row) {
     <p v-if="!business" role="status">Financial tools are available to farm owners and managers.</p>
     <template v-else>
       <p v-if="error || commandError" role="alert" class="error">{{ error || commandError }}</p>
-      <p v-if="!seasons.length || !stock.length">Create a season in Production and a stock item in Inventory before recording harvests or sales.</p>
+      <div v-if="!seasons.length || !stock.length" class="prerequisite-actions" aria-label="Get ready to record">
+        <FbButton v-if="!seasons.length" variant="secondary" :disabled="busy" @click="navigatePrerequisite('planning')"><Sprout :size="18" aria-hidden="true" />Create a season</FbButton>
+        <FbButton v-if="!stock.length && canAddStock" variant="secondary" :disabled="busy" @click="navigatePrerequisite('inventory')"><Package :size="18" aria-hidden="true" />Add stock item</FbButton>
+        <p v-else-if="!stock.length" role="status">Ask this farm’s owner to add stock items.</p>
+      </div>
       <div class="business-stats"><span><strong>{{ format(business.reports.overall.incomeMinor) }}</strong> recorded income</span><span><strong>{{ stock.length }}</strong> stock items</span><span><strong>{{ business.orders.filter(order => order.status === 'draft').length }}</strong> unpaid orders</span></div>
       <div class="action-tiles" aria-label="Business actions"><button type="button" :disabled="busy" @click="openEditor('sale', $event)"><Receipt aria-hidden="true" /><strong>Record sale</strong><span>Payment already received</span></button><button type="button" :disabled="busy" @click="openEditor('harvest', $event)"><Sprout aria-hidden="true" /><strong>Record harvest</strong><span>Add to stock</span></button><button type="button" :disabled="busy" @click="openEditor('expense', $event)"><Banknote aria-hidden="true" /><strong>Record expense</strong><span>Track money spent</span></button></div>
       <Transition name="editor"><section v-if="editorOpen" ref="editorRegion" class="inline-editor" tabindex="-1" aria-label="Business record editor"><header class="section-heading"><h3>{{ activeTab === 'harvest' ? 'Record a harvest' : activeTab === 'sale' ? 'Record a sale' : 'Record a season expense' }}</h3><FbButton variant="secondary" :disabled="busy" @click="closeEditor">Close, keep draft</FbButton></header><p v-if="activeTab === 'sale'" class="step-label">{{ detailsOpen.sale ? '2 · Sale details' : '1 · Choose product' }}</p>
@@ -221,6 +231,7 @@ async function print(row) {
 </template>
 
 <style scoped>
+.prerequisite-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:16px 0}.prerequisite-actions p{font-size:.875rem}
 .sale-season{grid-column:1/-1}.sale-season>.record-choices{margin:4px 0 0}.forms details>label{margin:10px 0}.farm-business button:disabled{cursor:not-allowed;opacity:.6}@media(prefers-reduced-motion:reduce){.farm-business .action-tiles button:hover:not(:disabled),.farm-business button:active:not(:disabled){transform:none!important}}
 .business-stats{display:flex;flex-wrap:wrap;gap:12px 28px;margin:20px 0;color:#52674f;font-size:.85rem}.business-stats strong{color:#193d2b}.action-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0 28px}.farm-business .action-tiles button{display:grid;justify-content:start;text-align:left;gap:10px;border:1px solid #c9d9b8;border-radius:22px;background:#eef4df;color:#193d2b;padding:22px;font:inherit;cursor:pointer}.farm-business .action-tiles button:first-child{background:#066136;color:white;border-color:#066136}.action-tiles strong{font-size:1.1rem}.action-tiles span{font-size:.8rem}.farm-business .action-tiles button:hover:not(:disabled){transform:translateY(-2px)}.quantity-stepper{display:grid;grid-template-columns:48px minmax(0,1fr) 48px;gap:8px}.farm-business .quantity-stepper button{margin:0;border:1px solid #a6b99d;border-radius:12px;background:#eef4df;color:#193d2b;font-size:1.4rem;cursor:pointer}.sale-review{grid-column:1/-1;padding:20px;border-radius:18px;background:#fff4bd;display:grid;gap:8px}.sale-review>strong{font-size:1.65rem}.sale-review p{margin:0}.step-label{font-size:.8rem;font-weight:700;color:#52674f}.inline-editor{max-width:840px}.choice-grid{max-height:380px;overflow:auto;padding:4px}.farm-business .record-picker .choice-grid button{min-height:108px}.forms form>label:has(select){grid-column:1/-1}@media(max-width:600px){.action-tiles{grid-template-columns:1fr}.farm-business .action-tiles button{grid-template-columns:28px 1fr;padding:16px;gap:4px 12px}.action-tiles svg{grid-row:1/3}.action-tiles span{grid-column:2}.business-stats{gap:10px 16px}}
 .inline-editor{margin:24px 0;padding:clamp(14px,3vw,28px);border:2px solid #b6cb97;border-left:5px solid #066136;border-radius:18px;background:#fff;min-width:0;scroll-margin-top:24px}.editor-fields{border:0;padding:0;margin:0;min-width:0}.record-picker{display:grid;gap:16px}.record-choices{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}.farm-business .record-choices button,.farm-business .choice-grid button{min-height:44px;padding:12px 16px;border:2px solid #dce6d5;border-radius:12px;background:#f5f6f0;color:#193d2b;font:inherit;text-align:left;cursor:pointer;overflow-wrap:anywhere}.choice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px}.farm-business .choice-grid button{display:grid;gap:6px;align-content:start}.choice-grid span{font-size:.85rem}.farm-business button[aria-pressed=true]{border-color:#066136;background:#e5edcf;box-shadow:inset 4px 0 #066136}.chosen-context{padding:12px;background:#e5edcf;border-radius:10px}.inline-editor:focus-visible,.farm-business button:focus-visible,.farm-business summary:focus-visible{outline:3px solid #b48000;outline-offset:3px}.farm-business summary{cursor:pointer;padding:12px 0;min-height:44px}.farm-business button{transition:background-color 160ms ease-out,transform 160ms ease-out}.farm-business button:active:not(:disabled){transform:scale(.98)}.editor-enter-active,.editor-leave-active{transition:opacity 200ms ease-out,transform 200ms ease-out}.editor-enter-from,.editor-leave-to{opacity:0;transform:translateY(-6px)}.editor-leave-active{pointer-events:none}.inline-editor *{box-sizing:border-box}.farm-business :deep(button){white-space:normal}.farm-business input,.farm-business select,.farm-business textarea{max-width:100%}@media(prefers-reduced-motion:reduce){.farm-business *{transition:none!important;animation:none!important}}

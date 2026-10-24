@@ -19,9 +19,9 @@ function setup(fetcher = () => { throw new Error('Unexpected network') }, geoloc
   const store = new Map()
   const context = vm.createContext({ ref, computed, watch, weatherAdvice, FarmSatelliteMap: {}, ...icons, AbortController, URL,
     onMounted: callback => { mount = callback }, onBeforeUnmount: callback => { unmount = callback },
-    navigator: { geolocation }, window: {}, document: { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' },
+    navigator: { geolocation }, window: { isSecureContext: true }, document: { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' },
     localStorage: { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) },
-    setInterval: () => 1, clearInterval() {}, $fetch: fetcher })
+    setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {}, $fetch: fetcher })
   vm.runInContext(compiled.content.replace(/^import .*$/gm, '').replace('export default', 'globalThis.component ='), context)
   const state = scope.run(() => context.component.setup(props, { expose() {}, emit() {} }))
   scope.run(() => mount())
@@ -36,7 +36,9 @@ test('weather fieldboard script, template and scoped styles compile', () => {
   assert.match(source, /class="map-workspace"/)
   assert.match(source, /class="area-rail panel"/)
   assert.match(source, /@point-select="selectMapPoint"/)
-  assert.doesNotMatch(descriptor.template.content, /type="number"|Enter approximate coordinates/)
+  assert.match(descriptor.template.content, /v-if="manual"/)
+  assert.match(descriptor.template.content, /Enter coordinates instead/)
+  assert.match(descriptor.template.content, /@submit.prevent="submitManual"/)
   assert.match(source, /forecast\.days\[0\]/)
   assert.match(source, /What this means for your farm/)
   assert.match(source, /No sample weather is shown/)

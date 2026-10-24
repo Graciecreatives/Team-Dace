@@ -11,13 +11,14 @@ const enterprises = computed(() => Array.isArray(props.user.mainEnterprises) ? p
 const latitude = ref(''), longitude = ref(''), country = ref(''), location = ref(null)
 const manual = ref(false), locating = ref(false), locationError = ref('')
 const mapWorkspace = ref(null), detailTab = ref('weather')
-function chooseOnMap() { geoGeneration++; locating.value = false; mapWorkspace.value?.chooseOnMap() }
-function selectMapPoint(point) { geoGeneration++; locating.value = false; usePoint(point.latitude, point.longitude) }
+function chooseOnMap() { cancelGeo(); locationError.value = ''; mapWorkspace.value?.chooseOnMap() }
+function selectMapPoint(point) { cancelGeo(); usePoint(point.latitude, point.longitude) }
 const forecast = ref(null), health = ref(null), weatherError = ref(''), healthError = ref('')
 const weatherBusy = ref(false), healthBusy = ref(false)
 const read = ref([]), dismissed = ref([]), storageWarning = ref('')
 const browserMessage = ref(''), browserEnabled = ref(false)
-let active = false, generation = 0, geoGeneration = 0, timer, lastRefresh = 0
+let active = false, generation = 0, geoGeneration = 0, geoTimer, timer, lastRefresh = 0
+function cancelGeo() { geoGeneration++; clearTimeout(geoTimer); geoTimer = undefined; locating.value = false }
 const controllers = new Set(), seen = { weather: new Set(), health: new Set() }
 const initialized = { weather: false, health: false }
 const advice = computed(() => forecast.value ? weatherAdvice(forecast.value, props.user) : [])
@@ -134,27 +135,37 @@ function usePoint(lat, lon) {
   refresh()
 }
 function submitManual() {
-  geoGeneration++; locating.value = false
+  cancelGeo()
   if (String(latitude.value).trim() === '' || String(longitude.value).trim() === '') { locationError.value = 'Enter both coordinates. No location is assumed.'; return }
   usePoint(Number(latitude.value), Number(longitude.value))
 }
 function locate() {
+  cancelGeo()
+  const token = geoGeneration
   locationError.value = ''
-  if (!navigator.geolocation) { locationError.value = 'Location is unavailable. Choose on map instead.'; return }
+  if (!window.isSecureContext) { locationError.value = 'Browser location needs a secure connection (HTTPS or localhost). Choose on map or enter coordinates instead.'; return }
+  if (!navigator.geolocation) { locationError.value = 'Browser location is unavailable. Choose on map or enter coordinates instead.'; return }
   locating.value = true
-  const token = ++geoGeneration
-  navigator.geolocation.getCurrentPosition(position => {
+  const fail = error => {
     if (!active || token !== geoGeneration) return
-    locating.value = false; usePoint(position.coords.latitude, position.coords.longitude)
-  }, () => {
+    cancelGeo()
+    const reason = error?.code === 1 ? 'Location permission was denied. Allow location in your browser’s site settings to retry.'
+      : error?.code === 3 ? 'Finding your location timed out. Try again outdoors or with a better connection.'
+      : 'Your browser could not determine your location. Check device location services and try again.'
+    locationError.value = `${reason} Choose on map or enter coordinates instead.`
+  }
+  // Browser acquisition timeouts may not cover waiting for permission.
+  geoTimer = setTimeout(() => fail({ code: 3 }), 15000)
+  try { navigator.geolocation.getCurrentPosition(position => {
     if (!active || token !== geoGeneration) return
-    locating.value = false; locationError.value = 'Location was not shared. Choose on map instead.'
-  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 })
+    cancelGeo(); usePoint(position.coords.latitude, position.coords.longitude)
+  }, fail, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }) }
+  catch (error) { fail(error) }
 }
 function visibleRefresh() { if (document.visibilityState === 'visible' && location.value && Date.now() - lastRefresh >= 15 * 60000) refresh() }
 function reset() {
-  generation++; geoGeneration++; controllers.forEach(controller => controller.abort()); controllers.clear()
-  detailTab.value = 'weather'
+  generation++; cancelGeo(); controllers.forEach(controller => controller.abort()); controllers.clear()
+  detailTab.value = 'weather'; manual.value = false
   location.value = null; latitude.value = ''; longitude.value = ''; country.value = ''; locating.value = false
   forecast.value = null; health.value = null; weatherBusy.value = false; healthBusy.value = false
   weatherError.value = ''; healthError.value = ''; locationError.value = ''; browserEnabled.value = false; browserMessage.value = ''
@@ -169,6 +180,8 @@ onBeforeUnmount(() => { active = false; reset(); clearInterval(timer); document.
   <div class="farm-watch">
     <header class="workspace-heading"><div class="watch-identity"><h2>Farm watch</h2><p>Explore your area. Plan your farm day.</p></div><div class="actions"><button class="primary location-primary" :disabled="locating" @click="locate"><MapPin :size="20" />{{ locating ? 'Finding your area…' : 'Use my location' }}</button><button @click="chooseOnMap">Choose on map</button></div></header>
     <p v-if="locationError" role="alert" class="warning">{{ locationError }}</p>
+    <div class="actions"><button :aria-expanded="manual" @click="manual = !manual">Enter coordinates instead</button></div>
+    <form v-if="manual" class="manual" @submit.prevent="submitManual"><label>Latitude<input v-model="latitude" type="number" min="-90" max="90" step="any" required /></label><label>Longitude<input v-model="longitude" type="number" min="-180" max="180" step="any" required /></label><button type="submit">Use coordinates</button></form>
     <div class="map-workspace">
       <FarmSatelliteMap :key="account" :point="location" ref="mapWorkspace" @point-select="selectMapPoint" />
       <aside class="area-rail panel" aria-label="Current area details">

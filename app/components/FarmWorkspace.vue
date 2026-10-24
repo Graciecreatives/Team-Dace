@@ -4,7 +4,7 @@ import FarmProduction from './FarmProduction.vue'
 import FarmOperations from './FarmOperations.vue'
 import FarmBusiness from './FarmBusiness.vue'
 import FarmTeam from './FarmTeam.vue'
-const emit = defineEmits(['changed'])
+const emit = defineEmits(['changed', 'navigate'])
 const props = defineProps({ user: { type: Object, required: true }, section: { type: String, default: 'planning' } })
 const { state, farmId, busy, error, message, queue, enabled, stale, online, uncertain, load, command, sync, selectFarm, enableDevice, discard } = useFarmWorkspace(computed(() => props.user))
 const deleting = ref('')
@@ -29,7 +29,7 @@ watch(() => state.value?.lastCommandId, id => { if (id) emit('changed') })
     <template v-if="state">
       <FarmProduction v-if="section === 'planning'" :key="state.farm.id" :state="state" :command-error="error" :busy="busy || !!uncertain" @command="command" />
       <FarmOperations v-if="['operations', 'team'].includes(section)" :key="`${state.farm.id}:${section}`" :section="section" :state="state" :busy="busy || !!uncertain" @command="command" />
-      <FarmBusiness v-if="section === 'business'" :key="state.farm.id" :state="state" :command-error="error" :busy="busy || !!uncertain" @command="command" />
+      <FarmBusiness v-if="section === 'business'" :key="state.farm.id" :state="state" :current-user-id="user.id || ''" @navigate="emit('navigate', $event)" :command-error="error" :busy="busy || !!uncertain" @command="command" />
       <details v-if="section === 'team' && state.farm.id === user.id" class="legacy-roster"><summary>Contact notebook (contacts do not grant account access)</summary><FarmTeam :user="user" /></details>
     </template>
     <details class="offline-panel">

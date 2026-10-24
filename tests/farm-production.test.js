@@ -8,7 +8,7 @@ const filename = 'app/components/FarmProduction.vue'
 const source = await readFile(filename, 'utf8')
 const { descriptor, errors } = parse(source, { filename })
 const script = compileScript(descriptor, { id: 'production' })
-const ui = ['FbTabs', 'FbDialog', 'FbPanel', 'FbButton', 'FbBadge', 'FbEmptyState', 'Sprout', 'Beef', 'CalendarPlus', 'NotebookPen']
+const ui = ['FbTabs', 'FbDialog', 'FbPanel', 'FbButton', 'FbBadge', 'FbEmptyState', 'Sprout', 'Beef', 'CalendarPlus', 'NotebookPen', 'Search']
 function fixture(role = 'owner') {
   return { currentUserId: 'user', farm: { id: 'farm', role }, enterprises: [{ id: 'register', name: 'Herd' }], planning: {
     plots: [{ id: 'plot', name: 'North', coordinates: [[7,3],[8,3],[8,4]] }],
@@ -30,6 +30,169 @@ function mount(role) {
   app.mount({})
   return { vm, props, commands, close: () => app.unmount(), receipt: async (id, action) => { props.state = { ...props.state, lastCommandId: id, result: { action } }; await Vue.nextTick() } }
 }
+function renderedMount(role = 'owner') {
+  // Render the real SFC and events on a custom host. Shared UI, transitions and DOM-only
+  // input directives are boundary stubs, so this verifies hierarchy, not browser layout.
+  const inline = compileScript(descriptor, { id: 'production-render', inlineTemplate: true }).content
+    .replace(/^import \{([^}]+)\} from ["']vue["'];?\n/gm, (_, names) => `const {${names.replace(/\s+as\s+/g, ': ')}} = Vue\n`)
+    .replace(/^import .* from .*\n/gm, '').replace('export default', 'return')
+  const wrapper = { setup: (_, { slots }) => () => Vue.h('div', [slots.actions?.(), slots.default?.()]) }
+  const button = { setup: (_, { attrs, slots }) => () => Vue.h('button', attrs, slots.default?.()) }
+  const tabs = { props: ['modelValue', 'items'], emits: ['update:modelValue'], setup: (p, { slots, emit }) => () => Vue.h('div', [p.items.map(item => Vue.h('button', { onClick: () => emit('update:modelValue', item.value) }, item.label)), slots[p.modelValue]?.()]) }
+  const stubs = ui.map(name => name === 'FbTabs' ? tabs : name === 'FbButton' ? button : wrapper)
+  const component = new Function('Vue', ...ui, inline)({ ...Vue, Transition: wrapper, vModelText: {}, vModelSelect: {} }, ...stubs)
+  const node = (tag, text = '') => ({ tag, text, children: [], props: {}, parent: null, focus() {}, querySelector() { return null } })
+  const renderer = Vue.createRenderer({
+    createElement: tag => node(tag), createText: text => node('#text', text), createComment: () => node('#comment'),
+    insert(child, parent, anchor) { if (child.parent) child.parent.children.splice(child.parent.children.indexOf(child), 1); child.parent = parent; const i = anchor ? parent.children.indexOf(anchor) : -1; parent.children.splice(i < 0 ? parent.children.length : i, 0, child) },
+    remove(child) { if (child.parent) child.parent.children.splice(child.parent.children.indexOf(child), 1) },
+    setText(n, text) { n.text = text }, setElementText(n, text) { n.text = text; n.children = [] },
+    patchProp(n, key, _, value) { n.props[key] = value }, parentNode: n => n.parent,
+    nextSibling(n) { return n.parent?.children[n.parent.children.indexOf(n) + 1] }
+  })
+  const props = Vue.reactive({ state: fixture(role), busy: false })
+  const commands = []
+  const root = node('root')
+  const app = renderer.createApp({ setup: () => () => Vue.h(component, { ...props, onCommand: command => commands.push(command) }) })
+  app.component('ClientOnly', wrapper); app.component('FarmPlotMap', wrapper)
+  app.mount(root)
+  const all = (n = root) => [n, ...n.children.flatMap(child => all(child))]
+  const text = n => n.text + n.children.map(text).join('')
+  const find = label => all().find(n => n.tag === 'button' && text(n) === label)
+  return { props, commands, all, text: () => text(root), close: () => app.unmount(), async click(label) { const target = find(label); assert.ok(target, label); assert.ok(!target.props.disabled, `${label} is enabled`); await target.props.onClick?.({ currentTarget: target }); await Vue.nextTick() } }
+}
+
+test('rendered production starts with task entries and keeps history and forms out of the main path', async () => {
+  const f = renderedMount()
+  try {
+    assert.match(f.text(), /New crop seasonNew animal group/)
+    assert.equal(f.all().filter(n => n.tag === 'button' && n.text === 'Plot boundaries').length, 1)
+    assert.ok(!f.all().some(n => n.tag === 'details' && n.props.class === 'season-links'))
+    f.props.state.planning.seasons[0].plotId = 'plot'
+    await Vue.nextTick()
+    assert.ok(f.all().some(n => n.tag === 'details' && n.props.class === 'season-links'))
+    assert.match(f.text(), /Plot: North/)
+    delete f.props.state.planning.seasons[0].plotId
+    await Vue.nextTick()
+    assert.match(f.text(), /Next task/)
+    assert.equal(f.all().filter(n => n.tag === 'form').length, 0)
+    assert.ok(!f.all().some(n => n.props.id === 'production-history'))
+    assert.ok(f.all().some(n => n.tag === 'details' && n.props.class === 'find-tools' && !n.props.open))
+    await f.click('View activity history')
+    assert.match(f.text(), /Actual stock harvest/)
+    await f.click('Hide activity history')
+    await f.click('Schedule work')
+    const fields = f.all().filter(n => n.tag === 'input')
+    fields.find(n => n.props.maxlength === '200').props['onUpdate:modelValue']('Inspect maize')
+    fields.find(n => n.props.type === 'date').props['onUpdate:modelValue']('2026-10-24')
+    await Vue.nextTick()
+    f.all().find(n => n.tag === 'form').props.onSubmit({ preventDefault() {} })
+    assert.deepEqual(f.commands[0], { action: 'schedule.create', seasonId: 'crop', title: 'Inspect maize', date: '2026-10-24' })
+    await f.click('Close, keep draft')
+    await f.click('Record activity')
+    assert.match(f.text(), /Record activity · Maize/)
+    assert.equal(f.all().filter(n => n.tag === 'form').length, 1)
+    await f.click('Close, keep draft')
+    await f.click('New animal group')
+    assert.match(f.text(), /New animal group/)
+    assert.equal(f.all().filter(n => n.tag === 'form').length, 1)
+    assert.ok(!f.text().includes('Plan planting through harvest'))
+    await f.click('Close, keep draft')
+    await f.click('Plot boundaries')
+    assert.match(f.text(), /Load interactive map/)
+    await f.click('Add plot')
+    assert.match(f.text(), /Add plot boundary/)
+    assert.equal(f.commands.length, 1)
+  } finally { f.close() }
+})
+
+test('rendered role controls keep workers on activity logging and viewers read-only', async () => {
+  for (const role of ['worker', 'viewer']) {
+    const f = renderedMount(role)
+    try {
+      assert.ok(!f.text().includes('New crop season'))
+      assert.ok(!f.text().includes('New animal group'))
+      assert.ok(!f.text().includes('Schedule work'))
+      assert.equal(f.text().includes('Record activity'), role === 'worker')
+      await f.click('View activity history')
+      assert.match(f.text(), /Actual stock harvest/)
+      assert.equal(f.commands.length, 0)
+    } finally { f.close() }
+  }
+})
+
+test('creation always returns from plots even when the same season editor is already open', async () => {
+  const f = renderedMount()
+  try {
+    await f.click('New crop season')
+    assert.equal(f.all().filter(n => n.tag === 'form').length, 1)
+    await f.click('Plot boundaries')
+    assert.equal(f.all().filter(n => n.tag === 'form').length, 0)
+    await f.click('New animal group')
+    assert.equal(f.all().filter(n => n.tag === 'form').length, 1)
+    assert.match(f.text(), /Back to season choices/)
+    assert.ok(!f.text().includes('Load interactive map'))
+  } finally { f.close() }
+})
+
+test('work and activity drafts stay with their season and late receipts clear only the matching scope', async () => {
+  const f = mount()
+  try {
+    Object.assign(f.vm.schedule, { title: 'Crop inspection', date: '2026-10-24' })
+    validEvent(f.vm); f.vm.event.note = 'Crop health'
+    f.vm.saveSchedule(); f.vm.saveEvent()
+    await f.vm.openEditor('event.create')
+    f.vm.selectSeason('herd')
+    assert.equal(f.vm.editor.value, '')
+    assert.equal(f.vm.schedule.title, '')
+    assert.equal(f.vm.event.note, '')
+    // Identical text in another season must not be cleared by the first season's receipt.
+    Object.assign(f.vm.schedule, { title: 'Crop inspection', date: '2026-10-24' })
+    validEvent(f.vm); f.vm.event.note = 'Crop health'
+    await f.vm.openEditor('event.create')
+    await f.receipt('crop-work', 'schedule.create')
+    await f.receipt('crop-event', 'event.create')
+    assert.equal(f.vm.schedule.title, 'Crop inspection')
+    assert.equal(f.vm.event.note, 'Crop health')
+    assert.equal(f.vm.editor.value, 'event.create')
+    f.vm.selectSeason('crop')
+    assert.equal(f.vm.schedule.title, '')
+    assert.equal(f.vm.event.note, '')
+    Object.assign(f.vm.schedule, { title: 'Fresh crop work', date: '2026-10-24' })
+    f.vm.saveSchedule(); f.vm.schedule.title = 'Edited while pending'
+    f.vm.selectSeason('herd')
+    await f.receipt('crop-edited', 'schedule.create')
+    f.vm.selectSeason('crop')
+    assert.equal(f.vm.schedule.title, 'Edited while pending')
+    f.props.state.currentUserId = 'other-user'; await Vue.nextTick()
+    f.vm.selectSeason('herd')
+    assert.equal(f.vm.event.note, '')
+    assert.equal(f.vm.schedule.title, '')
+  } finally { f.close() }
+})
+
+test('task entry preselects kind and selection returns to upcoming without opening history', async () => {
+  const f = mount()
+  try {
+    await f.vm.startSeason('livestock')
+    assert.equal(f.vm.season.kind, 'livestock')
+    assert.equal(f.vm.seasonDetails.value, true)
+    assert.equal(f.vm.editor.value, 'season.create')
+    f.vm.showHistory.value = true; f.vm.scheduleView.value = 'all'
+    f.vm.selectSeason('herd')
+    assert.equal(f.vm.selected.value, 'herd')
+    assert.equal(f.vm.scheduleView.value, 'upcoming')
+    assert.equal(f.vm.showHistory.value, false)
+    f.props.busy = true; await Vue.nextTick()
+    f.vm.selectSeason('crop'); await f.vm.startSeason('crops')
+    assert.equal(f.vm.selected.value, 'herd')
+    assert.equal(f.vm.season.kind, 'livestock')
+    f.vm.showHistory.value = true
+    f.props.state.currentUserId = 'next'; await Vue.nextTick()
+    assert.equal(f.vm.showHistory.value, false)
+  } finally { f.close() }
+})
+
 function validSeason(vm) { Object.assign(vm.season, { name: 'New dairy', kind: 'livestock', startsOn: '2026-01-01', endsOn: '2026-12-31', enterpriseId: 'register', plotId: 'plot' }) }
 function validEvent(vm) { Object.assign(vm.event, { type: 'health', date: '2026-10-24', quantity: '2', unit: 'head', note: 'Checked' }) }
 
@@ -80,7 +243,7 @@ test('production SFC compiles script, template and scoped styles with shared UI'
   assert.deepEqual(errors, [])
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'production', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
   for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'production', scoped: true }).errors, [])
-  for (const name of ui.filter(name => !['FbDialog', 'Sprout', 'Beef', 'CalendarPlus', 'NotebookPen'].includes(name))) assert.ok(source.includes(`<${name}`))
+  for (const name of ui.filter(name => !['FbDialog', 'Sprout', 'Beef', 'CalendarPlus', 'NotebookPen', 'Search'].includes(name))) assert.ok(source.includes(`<${name}`))
   assert.match(source, /ClientOnly v-if="showMap"/)
   assert.ok(!source.includes('<option value="harvest">') || !source.slice(source.indexOf('Event type')).includes('<option value="harvest">'))
 })

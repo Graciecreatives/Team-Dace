@@ -12,6 +12,12 @@ test('management boards use dashboard width while reading sections keep a limit'
   assert.match(sources.FarmDashboard, /\['marketplace', 'planning', 'operations', 'business', 'team', 'inventory', 'enterprises', 'records', 'reminders', 'bookkeeping', 'assistant'\]\.includes\(section\) \? 'max-w-none' : 'max-w-\[1440px\]'/)
 })
 
+test('business setup navigation reaches real dashboard sections through the workspace', async () => {
+  const workspace = await readFile('app/components/FarmWorkspace.vue', 'utf8')
+  assert.match(workspace, /<FarmBusiness[^>]+:current-user-id="user.id \|\| ''"[^>]+@navigate="emit\('navigate', \$event\)"/)
+  assert.match(sources.FarmDashboard, /<FarmWorkspace[^>]+@navigate="chooseSection"/)
+})
+
 for (const [name, source] of Object.entries(sources)) {
   test(`${name} script and template compile without a build`, () => {
     const { descriptor, errors } = parse(source)
