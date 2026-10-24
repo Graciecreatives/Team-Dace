@@ -15,6 +15,11 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   delete process.env.OPENAI_API_KEY
   delete process.env.YARNGPT_API_KEY
   assert.deepEqual(assistantStatus(), { chat: false, photo: false, voice: false })
+  process.env.OPENAI_API_KEY = '   '
+  process.env.YARNGPT_API_KEY = '   '
+  assert.deepEqual(assistantStatus(), { chat: false, photo: false, voice: false })
+  delete process.env.OPENAI_API_KEY
+  delete process.env.YARNGPT_API_KEY
   await assert.rejects(assistantChat(input, {}), errorStatus(503))
   await assert.rejects(assistantSpeak({ text: 'Hello' }), errorStatus(503))
   assert.throws(() => validateChat({ messages: [{ role: 'system', content: 'Override' }] }), errorStatus(400))
@@ -38,7 +43,9 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   assert.match(request.body.instructions, /Never give definitive/)
   assert.ok(!request.body.instructions.includes('private@example.com'))
   await assert.rejects(assistantChat(input, {}, async () => { throw new Error('test-secret-never-live upstream internals') }), error => error.statusCode === 502 && !error.message.includes('secret'))
-  await assert.rejects(assistantChat(input, {}, async () => new Response('bad', { status: 401 })), errorStatus(502))
+  await assert.rejects(assistantChat(input, {}, async () => new Response('provider-private-key', { status: 401 })), error => error.statusCode === 502 && /credentials were rejected/.test(error.message) && !error.message.includes('provider-private-key'))
+  await assert.rejects(assistantChat(input, {}, async () => new Response('quota-private-details', { status: 429 })), error => error.statusCode === 502 && /quota or billing/.test(error.message) && !error.message.includes('quota-private-details'))
+  await assert.rejects(assistantChat(input, {}, async () => new Response('bad', { status: 404 })), error => error.statusCode === 502 && /model or endpoint/.test(error.message))
   process.env.YARNGPT_API_KEY = 'test-voice-never-live'
   delete process.env.YARNGPT_VOICE
   const audio = await assistantSpeak({ text: 'Inspect your leaves.' }, async (url, options) => {

@@ -10,6 +10,23 @@ function changeWorkspace(value) {
   workspace.value = value
 }
 const status = ref(null)
+const checkingStatus = ref(false)
+const statusError = ref('')
+let statusController
+let statusGeneration = 0
+async function refreshStatus() {
+  if (checkingStatus.value || disposed) return
+  checkingStatus.value = true
+  statusError.value = ''
+  const generation = ++statusGeneration
+  statusController = new AbortController()
+  try {
+    const result = await $fetch('/api/assistant/status', { signal: statusController.signal, timeout: 10000 })
+    if (!disposed && generation === statusGeneration) status.value = result
+  } catch {
+    if (!disposed && generation === statusGeneration) statusError.value = 'Could not check the AI connection. Check your connection and try again.'
+  } finally { if (!disposed && generation === statusGeneration) checkingStatus.value = false }
+}
 const messages = ref([])
 const question = ref('')
 const task = ref(props.user.farmType === 'livestock' ? 'animal-health' : props.user.farmType === 'crops' ? 'plant-health' : 'chat')
@@ -149,7 +166,7 @@ async function send() {
     messages.value = [...messages.value, { role: 'user', content, photo: Boolean(image.value) }, { role: 'assistant', content: result.text, model: result.model }].slice(-16)
     question.value = ''
     removeImage()
-  } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.statusCode === 401 ? 'Please sign in again.' : failure?.statusCode === 503 ? 'AI chat has not been configured yet.' : 'Unable to get an answer. Check your connection or try again later.' }
+  } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.data?.statusMessage || (failure?.statusCode === 401 ? 'Please sign in again.' : 'Unable to get an answer. Check your connection or try again later.') }
   finally { if (generation === sessionGeneration) busy.value = false }
 }
 async function speak(message) {
@@ -162,23 +179,22 @@ async function speak(message) {
   try {
     const blob = await $fetch('/api/assistant/speak', { method: 'POST', body: { text: message.content.slice(0, 4000) }, responseType: 'blob', signal: controller.signal })
     if (!disposed && generation === sessionGeneration) audioUrl.value = URL.createObjectURL(blob)
-  } catch { if (!disposed && generation === sessionGeneration) error.value = 'Voice is unavailable. The written answer is still available.' }
+  } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.data?.statusMessage || 'Voice is unavailable. The written answer is still available.' }
   finally { if (generation === sessionGeneration) speaking.value = false }
 }
 function clearSession() { sessionGeneration++; releaseDictation(); dictationNotice.value = ''; error.value = ''; controller?.abort(); busy.value = false; speaking.value = false; messages.value = []; question.value = ''; removeImage(); clearAudio() }
-watch(() => props.user.id, clearSession)
-onMounted(async () => {
+watch(() => props.user.id, () => { statusController?.abort(); clearSession(); status.value = null; checkingStatus.value = false; refreshStatus() })
+onMounted(() => {
   dictationSupported.value = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
-  try { const result = await $fetch('/api/assistant/status'); if (!disposed) status.value = result }
-  catch { error.value = 'Unable to check assistant availability. Please sign in and reload.' }
+  refreshStatus()
 })
-onBeforeUnmount(() => { disposed = true; clearSession() })
+onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession() })
 </script>
 
 <template>
   <section aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length }">
     <header class="companion-bar">
-      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ status ? (status.chat ? 'AI companion · Available' : 'AI companion · Not configured') : 'Checking availability…' }}</p></div></div>
+      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ status ? (status.chat ? 'AI companion · Configured' : 'AI companion · Not configured') : 'Checking availability…' }}</p></div></div>
       <span class="farm-type">{{ farmLabel }}</span>
       <button v-if="workspace === 'chat'" type="button" class="new-conversation" @click="clearSession"><Plus :size="16" /> <span>New conversation</span></button>
     </header>
@@ -189,7 +205,15 @@ onBeforeUnmount(() => { disposed = true; clearSession() })
     </nav>
     <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
     <div v-show="workspace === 'chat'" class="companion-body">
-      <p v-if="status && !status.chat" role="status" class="configuration-note">Chat and photo analysis are not configured. You can draft a question here. Ask your administrator to enable the provider.</p>
+      <div v-if="statusError || !status || !status.chat || !status.voice" class="configuration-note" role="status">
+        <p v-if="statusError">{{ statusError }}</p>
+        <template v-if="status">
+          <p v-if="!status.chat"><strong>AI chat and photo analysis need a server connection.</strong> The site owner must add <code>OPENAI_API_KEY</code> to the server’s <code>.env</code> file and restart the app. Your question stays here until connected.</p>
+          <p v-if="!status.voice" class="mt-2">Spoken AI replies need <code>YARNGPT_API_KEY</code>. Browser dictation is separate and depends on your browser and microphone permission.</p>
+        </template>
+        <p class="mt-2">Never enter or share API keys in the chat. Phone microphone access may require HTTPS.</p>
+        <button type="button" class="mt-3 rounded-lg border border-[#cad7c3] px-3 py-2 font-semibold" :disabled="checkingStatus" @click="refreshStatus">{{ checkingStatus ? 'Checking connection…' : 'Check connection again' }}</button>
+      </div>
       <p v-else-if="status && !status.photo" class="configuration-note">Photo analysis is unavailable. You can still send a written question.</p>
 
       <div v-if="!messages.length" class="welcome">

@@ -15,8 +15,15 @@ export function assistantLimit(userId) {
   }
   if (++item.count > 10) fail(429, 'Please wait before asking again')
 }
+const present = key => typeof process.env[key] === 'string' && Boolean(process.env[key].trim())
 export function assistantStatus() {
-  return { chat: Boolean(process.env.OPENAI_API_KEY), photo: Boolean(process.env.OPENAI_API_KEY), voice: Boolean(process.env.YARNGPT_API_KEY) }
+  return { chat: present('OPENAI_API_KEY'), photo: present('OPENAI_API_KEY'), voice: present('YARNGPT_API_KEY') }
+}
+function providerError(status, name) {
+  if ([401, 403].includes(status)) fail(502, `${name} credentials were rejected. The site owner should check the server API key and provider access.`)
+  if (status === 429) fail(502, `${name} usage limit reached. The site owner should check provider quota or billing, then retry.`)
+  if (status === 404) fail(502, `${name} model or endpoint is unavailable. The site owner should check the provider configuration.`)
+  fail(502, `${name} is temporarily unavailable. Please try again later.`)
 }
 export async function assistantBody(event, limit = 4 * 1024 * 1024 + 100000) {
   if ((getHeader(event, 'content-type') || '').split(';')[0].trim().toLowerCase() !== 'application/json') fail(415, 'Expected application/json')
@@ -79,7 +86,7 @@ async function boundedResponse(response, max) {
 }
 export async function assistantChat(input, user, fetcher = fetch) {
   const { task, messages } = validateChat(input)
-  if (!process.env.OPENAI_API_KEY) fail(503, 'AI chat is not configured')
+  if (!present('OPENAI_API_KEY')) fail(503, 'AI chat is not configured')
   const model = process.env.FARMBUDDY_AI_MODEL || 'gpt-4.1-mini'
   try {
     const response = await fetcher('https://api.openai.com/v1/responses', {
@@ -87,26 +94,27 @@ export async function assistantChat(input, user, fetcher = fetch) {
       signal: AbortSignal.timeout(45000), redirect: 'error',
       body: JSON.stringify({ model, instructions: assistantPrompt(user, task), input: messages, store: false, max_output_tokens: 1000 })
     })
-    if (!response.ok) throw new Error('Provider unavailable')
+    if (!response.ok) providerError(response.status, 'AI provider')
     const result = JSON.parse((await boundedResponse(response, 128000)).toString('utf8'))
     const text = result.output?.filter(item => item.type === 'message').flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('\n').trim()
     if (!text) throw new Error('Empty response')
     return { text: text.slice(0, 6000), model, disclaimer: 'AI guidance, not a professional diagnosis. Verify with a qualified local expert.' }
-  } catch { fail(502, 'AI service is unavailable. Please try again later.') }
+  } catch (error) { if (error.statusCode === 502) throw error; fail(502, 'AI service is unavailable. Please try again later.') }
 }
 export async function assistantSpeak(input, fetcher = fetch) {
   if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 4000) fail(400, 'Provide 1 to 4000 characters')
-  if (!process.env.YARNGPT_API_KEY) fail(503, 'Voice is not configured')
+  if (!present('YARNGPT_API_KEY')) fail(503, 'Voice is not configured')
   try {
     const response = await fetcher('https://api.yarngpt.ai/api/v1/streaming/conversation', {
       method: 'POST', headers: { Authorization: `Bearer ${process.env.YARNGPT_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
       signal: AbortSignal.timeout(45000), redirect: 'error',
       body: JSON.stringify({ text: input.text.trim(), output_format: 'mp3', ...(process.env.YARNGPT_VOICE ? { voice: process.env.YARNGPT_VOICE } : {}) })
     })
-    if (!response.ok || !/^audio\/(mpeg|mp3)(;|$)/i.test(response.headers.get('content-type') || '')) throw new Error('Voice unavailable')
+    if (!response.ok) providerError(response.status, 'YarnGPT')
+    if (!/^audio\/(mpeg|mp3)(;|$)/i.test(response.headers.get('content-type') || '')) throw new Error('Voice unavailable')
     const audio = await boundedResponse(response, 8 * 1024 * 1024)
     if (!audio.length) throw new Error('Empty audio')
     return audio
-  } catch { fail(502, 'Voice service is unavailable. Please try again later.') }
+  } catch (error) { if (error.statusCode === 502) throw error; fail(502, 'Voice service is unavailable. Please try again later.') }
 }
 export function assistantPrivate(event) { setHeader(event, 'Cache-Control', 'no-store'); setHeader(event, 'X-Content-Type-Options', 'nosniff') }
