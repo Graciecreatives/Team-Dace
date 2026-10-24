@@ -12,12 +12,12 @@ import { retrieveAssistantKnowledge } from '../server/utils/assistant-knowledge.
 import { assistantChat, validateChat } from '../server/utils/assistant.js'
 
 const input = { messages: [{ role: 'user', content: 'How do I scout maize?' }] }
-const user = { id: 'owner', farmType: 'crops', email: 'AUTH_CANARY', name: 'AUTH_CANARY', teamRoster: [{ name: 'AUTH_CANARY' }] }
+const user = { id: 'owner', farmType: 'crops', email: 'AUTH_CANARY', name: 'AUTH_CANARY', teamRoster: [{ name: 'AUTH_CANARY' }], privateFarmNotes: 'PRIVATE_CANARY' }
 function fixture() {
   const workspace = emptyWorkspace(user.id)
   workspace.members.push({ userId: 'other', role: 'manager' })
-  workspace.tasks.push({ id: 'task', title: 'Inspect maize', dueOn: '2026-10-24', assigneeId: 'AUTH_CANARY' })
-  workspace.events.push({ id: 'event', type: 'health', date: '2026-10-24', note: 'PRIVATE_CANARY', actorId: 'AUTH_CANARY' })
+  workspace.tasks.push({ id: 'task', title: 'Inspect maize', dueOn: '2026-10-24', seasonId: 'season-maize', assigneeId: 'AUTH_CANARY' })
+  workspace.events.push({ id: 'event', type: 'health', date: '2026-10-24', seasonId: 'season-maize', note: 'OPERATIONAL_NOTE', actorId: 'AUTH_CANARY' })
   return { users: [user, { id: 'other' }], enterprises: [{ id: 'crop', userId: user.id, name: 'Maize', notes: 'PRIVATE_CANARY' }, { id: 'other', userId: 'other', name: 'CROSS_CANARY' }], inventory: [], records: [{ userId: user.id, category: 'income', title: 'FINANCE_CANARY', amount: 5 }, { userId: user.id, category: 'activity', title: 'Inspect', note: 'PRIVATE_CANARY' }], reminders: [], farmWorkspaces: [workspace] }
 }
 
@@ -46,6 +46,11 @@ test('own snapshot excludes cross-account, member, private and financial data, b
   assert.equal(context.snapshot.inventory[0].name.length, 200)
   data.enterprises[0].name = 'Changed'
   assert.equal(context.snapshot.enterprises[0].name, 'Maize')
+  assert.equal(context.snapshot.events[0].note, 'OPERATIONAL_NOTE')
+  assert.equal(context.snapshot.events[0].seasonId, 'season-maize')
+  assert.equal(context.snapshot.tasks[0].seasonId, 'season-maize')
+  data.farmWorkspaces[0].events[0].note = 'x'.repeat(5000)
+  assert.equal(buildAssistantContext(data, user, { ...input, includeFarmContext: true }).snapshot.events[0].note.length, 200)
   assert.equal(context.contextUsed.counts.tasks, 1)
 })
 
@@ -72,15 +77,19 @@ test('retrieval is deterministic, short, task/farm-aware and never uses old conv
     assert.doesNotMatch(prompt, /AUTH_CANARY|PRIVATE_CANARY|CROSS_CANARY/)
     return Response.json({ choices: [{ message: { content: 'Scout regularly [fao-ipm-practice]' } }] })
   }, context)
-  assert.deepEqual(result.contextUsed.sourceIds, ['fao-ipm', 'fao-ipm-practice'])
-  assert.deepEqual(result.sources.map(s => Object.keys(s)), [['id', 'title', 'url'], ['id', 'title', 'url']])
+  assert.deepEqual(result.contextMetadata.sourceIds, ['fao-ipm', 'fao-ipm-practice'])
+  assert.equal(result.contextUsed, true)
+  assert.equal(result.contextMetadata.counts.events, 1)
+  assert.deepEqual(result.sources.map(s => Object.keys(s)), [['id', 'title', 'url', 'reviewedAt'], ['id', 'title', 'url', 'reviewedAt']])
+  assert.ok(result.sources.every(source => source.reviewedAt === '2026-10-24'))
   const reply = await assistantChat({ messages: [{ role: 'user', content: 'sick livestock' }, { role: 'assistant', content: 'Tell me more' }, { role: 'user', content: 'hello' }] }, {}, async () => Response.json({ choices: [{ message: { content: 'Hello' } }] }))
   assert.deepEqual(reply.sources, [])
   const optOut = await assistantChat(input, context.profile, async (_url, options) => {
     assert.doesNotMatch(options.body, /IGNORE RULES/)
     return Response.json({ choices: [{ message: { content: 'Scout' } }] })
   }, context)
-  assert.equal(optOut.contextUsed.included, false)
+  assert.equal(optOut.contextUsed, false)
+  assert.deepEqual(optOut.contextMetadata.counts, {})
 })
 
 test('HTTP request reauthenticates after body, rejects revoked session and releases store before provider', async t => {
@@ -119,7 +128,7 @@ test('HTTP request reauthenticates after body, rejects revoked session and relea
   const headers = { Cookie: `farmbuddy_session=${token}`, 'Content-Type': 'application/json' }
   const response = await originalFetch(base, { method: 'POST', headers, body: JSON.stringify({ ...input, includeFarmContext: true }) })
   assert.equal(response.status, 200)
-  assert.equal((await response.json()).contextUsed.included, true)
+  assert.equal((await response.json()).contextUsed, true)
   assert.equal((await originalFetch(base, { method: 'POST', headers, body: JSON.stringify({ ...input, farmId: 'other', includeFarmContext: true }) })).status, 403)
   // Send headers and a partial body so initial authentication runs, then revoke.
   const revoked = new Promise((resolve, reject) => {

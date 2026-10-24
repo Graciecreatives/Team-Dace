@@ -39,8 +39,8 @@ export function buildAssistantContext(data, user, input) {
     reminders: [own('reminders'), ['id', 'title', 'date', 'completed']],
     records: [own('records').filter(row => row.category === 'activity' && (row.amount === null || row.amount === undefined)), ['id', 'title', 'category', 'createdAt']],
     seasons: [ctx.workspace.seasons, ['id', 'name', 'kind', 'startsOn', 'endsOn']],
-    tasks: [ctx.workspace.tasks, ['id', 'title', 'dueOn', 'completed']],
-    events: [ctx.workspace.events, ['id', 'type', 'date', 'quantity', 'unit']]
+    tasks: [ctx.workspace.tasks, ['id', 'title', 'dueOn', 'completed', 'seasonId']],
+    events: [ctx.workspace.events, ['id', 'type', 'date', 'quantity', 'unit', 'seasonId', 'note']]
   }
   const snapshot = Object.fromEntries(Object.entries(specs).map(([key, [rows, keys]]) => [key, recent(rows).map(row => project(row, keys))]))
   return { profile, snapshot, contextUsed: { included: true, counts: Object.fromEntries(Object.entries(snapshot).map(([key, rows]) => [key, rows.length])) } }

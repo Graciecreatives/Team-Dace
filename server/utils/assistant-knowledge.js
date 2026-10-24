@@ -21,5 +21,5 @@ const documents = [
 ]
 export function retrieveAssistantKnowledge(question, task = 'chat', farmType = '') {
   const query = `${String(question).slice(0, 4000)} ${task} ${String(farmType).slice(0, 300)}`.toLowerCase()
-  return documents.filter(doc => doc.match.test(query)).slice(0, 3).map(({ id, title, url, facts }) => ({ id, title, url, facts: [...facts] }))
+  return documents.filter(doc => doc.match.test(query)).slice(0, 3).map(({ id, title, url, facts }) => ({ id, title, url, reviewedAt: '2026-10-24', facts: [...facts] }))
 }
