@@ -141,7 +141,7 @@ export async function encodeProductPhoto(bytes, contentType) {
     const header = imageHeader(bytes, expected)
     if (header.width * header.height > (cloud ? 4000000 : 40000000)) fail(413, cloud ? 'Choose a photo under 4 megapixels for upload' : 'Choose a photo under 40 megapixels')
     // Both entrypoints use real Rust decoding and encoding, no native sharp code.
-    const photon = cloud ? await import('@cf-wasm/photon/workerd') : await import('@cf-wasm/photon/node')
+    const photon = cloud ? await import('./product-photon.js') : await import('@cf-wasm/photon/node')
     input = photon.PhotonImage.new_from_byteslice(bytes)
     if (input.get_width() !== header.width || input.get_height() !== header.height) throw new Error()
     const scale = Math.min(1, 1600 / header.width, 1600 / header.height)
