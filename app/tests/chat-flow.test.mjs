@@ -28,6 +28,53 @@ function setup(fetcher, nativeRecording = false) {
   return { state, props, calls, revoked, recording, browser: context.window, stop() { unmount(); scope.stop() } }
 }
 
+test('measured root fits desktop, mobile and keyboard changes without sending or losing draft', async () => {
+  const app = setup(async () => { throw new Error('must not send') }); await flush()
+  let top = 144
+  app.state.chatRoot.value = { getBoundingClientRect: () => ({ top }) }
+  app.state.question.value = 'Keep this draft'
+  const scenarios = [
+    ['desktop fallback', 1000, null, 144, 856, false],
+    ['mobile', 842, { height: 842, offsetTop: 0 }, 80, 762, false],
+    ['keyboard with offset', 842, { height: 420, offsetTop: 25 }, 80, 365, true],
+    ['root changes position', 842, { height: 420, offsetTop: 25 }, 160, 285, true],
+    ['negative root top', 842, { height: 420, offsetTop: 25 }, -30, 445, true],
+    ['minimum height', 842, { height: 220, offsetTop: 0 }, 180, 180, true],
+    ['keyboard closes', 842, { height: 842, offsetTop: 0 }, 80, 762, false]
+  ]
+  for (const [name, innerHeight, viewport, rootTop, height, keyboard] of scenarios) {
+    top = rootTop
+    app.browser.innerHeight = innerHeight
+    app.browser.visualViewport = viewport && { ...viewport, removeEventListener() {} }
+    app.state.updateChatViewport()
+    assert.equal(app.state.availableHeight.value, height, name)
+    assert.equal(app.state.viewportHeight.value, viewport?.height || null, name)
+    assert.equal(app.state.keyboardOpen.value, keyboard, name)
+    assert.equal(app.state.question.value, 'Keep this draft', name)
+    assert.equal(app.state.messages.value.length, 0, name)
+    assert.equal(app.calls.filter(call => !call.path.endsWith('/status')).length, 0, name)
+  }
+  app.stop()
+})
+
+test('actual send keeps only trusted HTTPS source URLs for Sources disclosure', async () => {
+  const sources = [
+    { id: 'fao', title: 'FAO guidance', url: 'https://www.fao.org/example' },
+    { id: 'wa', title: 'Agriculture guidance', url: 'https://agr.wa.gov/example' },
+    { id: 'script', title: 'Unsafe', url: 'javascript:alert(1)' },
+    { id: 'http', title: 'Insecure', url: 'http://www.fao.org/example' },
+    { id: 'spoof', title: 'Spoofed', url: 'https://www.fao.org.evil.example/example' },
+    { id: 'credentials', title: 'Credentials spoof', url: 'https://www.fao.org@evil.example/example' },
+    { id: 'missing-title', url: 'https://www.fao.org/example' },
+    null
+  ]
+  const app = setup(async () => ({ text: 'Check local guidance.', sources })); await flush()
+  app.state.question.value = 'How should I care for my crops?'
+  await app.state.send()
+  assert.deepEqual(Array.from(app.state.messages.value[1].sources, source => source.url), sources.slice(0, 2).map(source => source.url))
+  app.stop()
+})
+
 test('phone keyboard contracts the chat viewport without changing or sending the draft', async () => {
   const app = setup(async () => { throw new Error('must not send') }); await flush()
   app.browser.innerHeight = 842

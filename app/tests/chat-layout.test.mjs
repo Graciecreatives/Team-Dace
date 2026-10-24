@@ -25,7 +25,7 @@ test('chat keeps composer outside its bounded scrolling history', () => {
   const rules = [...css.matchAll(/\.conversation\s*\{([^}]+)\}/g)].map(match => match[1]).join('\n')
   assert.match(rules, /flex:\s*1/)
   assert.doesNotMatch(rules, /(?:max-height|overflow|overscroll-behavior|height):/)
-  assert.match(css, /\.chat-workspace\s*\{[^}]*height:calc\(var\(--chat-viewport-height, 100dvh\) - 116px\)/)
+  assert.match(css, /\.chat-workspace\s*\{[^}]*height:var\(--chat-available-height, calc\(100dvh - 80px\)\)/)
   assert.match(css, /\.chat-history\s*\{[^}]*min-height:0;[^}]*overflow-y:auto/)
   assert.match(css, /\.chat-workspace \.composer-area\s*\{[^}]*flex-shrink:0/)
   assert.doesNotMatch(source, /scrollIntoView|window\.scrollTo/)
@@ -56,7 +56,7 @@ test('actual compiled template mounts empty and long-thread layout with accessib
   const directive = {}
   const render = new Function('Vue', `${code}; return render`)({ ...vue, vModelText: directive, vModelSelect: directive, vModelCheckbox: directive, vShow: directive })
   const context = {
-    messages: [], workspace: 'chat', photoMode: false, viewportHeight: null, keyboardOpen: false, status: { chat: false, photo: false, voice: false }, statusError: '', checkingStatus: false,
+    messages: [], workspace: 'chat', photoMode: false, viewportHeight: null, availableHeight: null, chatRoot: null, keyboardOpen: false, status: { chat: true, photo: false, voice: false }, statusError: '', checkingStatus: false,
     farmLabel: 'Crop farm', starters: [], includeFarmContext: false, busy: false, speaking: false, task: 'chat', question: '', image: null,
     dictationSupported: false, dictationActive: false, listening: false, dictationNotice: '', error: '', audioUrl: '',
     changeWorkspace() {}, choosePhotoMode() {}, clearSession() {}, refreshStatus() {}, changeFarmContext() {}, send() {}, chooseImage() {}, stopDictation() {}, startDictation() {}
@@ -75,9 +75,39 @@ test('actual compiled template mounts empty and long-thread layout with accessib
   assert.deepEqual(all(toolNav).filter(el => hasClass(el, 'mobile-tool-name')).map(el => el.text), ['Chat', 'Photo', 'Record', 'Plants', 'Cattle'])
   assert.match(css, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/)
   assert.match(css, /min-height:68px/)
-  vm.messages = Array.from({ length: 16 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: 'Long farming guidance. '.repeat(300), model: 'test/model' }))
+  const textContent = el => [el.text, ...el.children.map(textContent)].join(' ')
+  const assertCleanConnectedUI = () => {
+    const elements = all(root)
+    assert.doesNotMatch(textContent(root), /AI chat configured|Help with|Farm context (?:used|not used)|Saved farm records (?:used|not used)/i)
+    assert.ok(!elements.some(el => hasClass(el, 'connection-details')))
+    assert.ok(!elements.some(el => hasClass(el, 'context-note')))
+    assert.ok(!elements.some(el => el.type === 'select' && el.props.id !== 'assistant-dictation-language'))
+    assert.ok(!all(toolNav).some(el => el.type === 'small'))
+    const about = elements.find(el => hasClass(el, 'guidance-details'))
+    assert.equal(about.type, 'details')
+    assert.ok(!about.props.open)
+    assert.equal(about.children.find(el => el.type === 'summary').text, 'About')
+    assert.match(textContent(about), /qualified local expert immediately/)
+  }
+  assertCleanConnectedUI()
+  vm.availableHeight = 365
+  await nextTick()
+  assert.equal(all(root).find(el => hasClass(el, 'farm-companion')).props.style['--chat-available-height'], '365px')
+  vm.messages = Array.from({ length: 16 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: 'Long farming guidance. '.repeat(300), model: 'test/model', contextUsed: true, sources: index === 1 ? [{ id: 'fao', title: 'FAO guidance', url: 'https://www.fao.org/example' }] : [] }))
   await nextTick()
   const elements = all(root)
+  assertCleanConnectedUI()
+  const disclosures = elements.filter(el => hasClass(el, 'knowledge-sources'))
+  assert.equal(disclosures.length, 1)
+  const disclosure = disclosures[0]
+  assert.equal(disclosure.type, 'details')
+  assert.ok(!disclosure.props.open)
+  assert.equal(disclosure.children.find(el => el.type === 'summary').text, 'Sources')
+  const link = all(disclosure).find(el => el.type === 'a')
+  assert.equal(link.props.href, 'https://www.fao.org/example')
+  assert.equal(link.props.target, '_blank')
+  assert.equal(link.props.rel, 'noopener noreferrer')
+  assert.equal(link.text, 'FAO guidance')
   assert.equal(elements.filter(el => hasClass(el, 'message')).length, 16)
   assert.ok(!elements.some(el => hasClass(el, 'welcome')))
   const conversation = elements.find(el => hasClass(el, 'conversation'))

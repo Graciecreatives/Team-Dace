@@ -9,9 +9,13 @@ const emit = defineEmits(['records-changed'])
 const workspace = ref('chat')
 const photoMode = ref(false)
 const viewportHeight = ref(null)
+const chatRoot = ref(null)
+const availableHeight = ref(null)
 const keyboardOpen = ref(false)
 function updateChatViewport() {
   viewportHeight.value = window.visualViewport?.height || null
+  const top = chatRoot.value?.getBoundingClientRect?.().top
+  if (Number.isFinite(top)) availableHeight.value = Math.max(180, (viewportHeight.value || window.innerHeight) + (window.visualViewport?.offsetTop || 0) - Math.max(0, top))
   keyboardOpen.value = Boolean(viewportHeight.value && window.innerHeight - viewportHeight.value > 120)
 }
 function changeWorkspace(value) {
@@ -19,6 +23,7 @@ function changeWorkspace(value) {
   clearAudio()
   workspace.value = value
   photoMode.value = false
+  nextTick(updateChatViewport)
 }
 async function choosePhotoMode() {
   if (!status.value?.photo) { changeWorkspace('scan'); return }
@@ -319,36 +324,36 @@ watch(() => props.user.id, () => { statusController?.abort(); clearSession(); st
 onMounted(() => {
   updateChatViewport()
   window.visualViewport?.addEventListener('resize', updateChatViewport)
+  window.visualViewport?.addEventListener('scroll', updateChatViewport)
+  window.addEventListener?.('resize', updateChatViewport)
   dictationSupported.value = Boolean((navigator.mediaDevices?.getUserMedia && window.MediaRecorder) || window.SpeechRecognition || window.webkitSpeechRecognition)
   refreshStatus()
 })
-onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', updateChatViewport); disposed = true; statusController?.abort(); clearSession() })
+onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', updateChatViewport); window.visualViewport?.removeEventListener('scroll', updateChatViewport); window.removeEventListener?.('resize', updateChatViewport); disposed = true; statusController?.abort(); clearSession() })
 </script>
 
 <template>
-  <section aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length, 'chat-workspace': workspace === 'chat', 'keyboard-open': keyboardOpen }" :style="viewportHeight ? { '--chat-viewport-height': `${viewportHeight}px` } : undefined">
+  <section ref="chatRoot" aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length, 'chat-workspace': workspace === 'chat', 'keyboard-open': keyboardOpen }" :style="availableHeight ? { '--chat-available-height': `${availableHeight}px` } : undefined">
     <header class="companion-bar">
-      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ statusError ? 'Connection check failed' : status ? (status.chat ? 'AI chat configured' : 'Setup needed to send') : 'Checking availability…' }}</p></div></div>
-      <span class="farm-type">{{ farmLabel }}</span>
+      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><h2 id="farm-assistant-title">FarmBuddyAI</h2></div>
       <button v-if="workspace === 'chat'" type="button" class="new-conversation" @click="clearSession"><Plus :size="16" /> <span>New conversation</span></button>
     </header>
 
     <nav class="workspace-switch" aria-label="FarmBuddyAI tools">
-      <button type="button" aria-label="Ask FarmBuddyAI a question" :disabled="busy || speaking" :aria-pressed="workspace === 'chat' && !photoMode" @click="changeWorkspace('chat')"><MessageCircle :size="22" aria-hidden="true" /><span><strong>Ask a question</strong><small>Work through your next step</small></span><span class="mobile-tool-name">Chat</span></button>
-      <button type="button" aria-label="Discuss a photo with FarmBuddyAI" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Discuss a photo</strong><small>General AI guidance</small></span><span class="mobile-tool-name">Photo</span></button>
-      <button type="button" aria-label="Turn voice into a farm record" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="22" aria-hidden="true" /><span><strong>Voice to farm record</strong><small>Speak, review, then save</small></span><span class="mobile-tool-name">Record</span></button>
-      <button type="button" aria-label="Scan a plant with Pl@ntNet" :disabled="busy || speaking" :aria-pressed="workspace === 'scan'" @click="changeWorkspace('scan')"><Leaf :size="22" aria-hidden="true" /><span><strong>Scan a plant</strong><small>Specialist image recognition</small></span><span class="mobile-tool-name">Plants</span></button>
-      <button type="button" aria-label="Experimental cattle photo check" :disabled="busy || speaking" :aria-pressed="workspace === 'animal-scan'" @click="changeWorkspace('animal-scan')"><Beef :size="22" aria-hidden="true" /><span><strong>Check a cow photo</strong><small>Experimental visual screening</small></span><span class="mobile-tool-name">Cattle</span></button>
+      <button type="button" aria-label="Ask FarmBuddyAI a question" :disabled="busy || speaking" :aria-pressed="workspace === 'chat' && !photoMode" @click="changeWorkspace('chat')"><MessageCircle :size="22" aria-hidden="true" /><span><strong>Ask a question</strong></span><span class="mobile-tool-name">Chat</span></button>
+      <button type="button" aria-label="Discuss a photo with FarmBuddyAI" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Discuss a photo</strong></span><span class="mobile-tool-name">Photo</span></button>
+      <button type="button" aria-label="Turn voice into a farm record" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="22" aria-hidden="true" /><span><strong>Voice to farm record</strong></span><span class="mobile-tool-name">Record</span></button>
+      <button type="button" aria-label="Scan a plant with Pl@ntNet" :disabled="busy || speaking" :aria-pressed="workspace === 'scan'" @click="changeWorkspace('scan')"><Leaf :size="22" aria-hidden="true" /><span><strong>Scan a plant</strong></span><span class="mobile-tool-name">Plants</span></button>
+      <button type="button" aria-label="Experimental cattle photo check" :disabled="busy || speaking" :aria-pressed="workspace === 'animal-scan'" @click="changeWorkspace('animal-scan')"><Beef :size="22" aria-hidden="true" /><span><strong>Check a cow photo</strong></span><span class="mobile-tool-name">Cattle</span></button>
     </nav>
     <FarmAnimalScan v-if="workspace === 'animal-scan'" :user="user" @ask-ai="askAboutAnimal" />
     <FarmScan v-if="workspace === 'scan'" :user="user" @ask-ai="askAboutPlant" />
     <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
     <div v-show="workspace === 'chat'" class="companion-body">
       <div ref="historyPanel" class="chat-history" tabindex="0" aria-label="Chat messages and help">
-      <details class="connection-details">
-        <summary><PlugZap :size="17" aria-hidden="true" /><span>{{ statusError ? 'Connection check failed' : !status ? 'Checking AI availability…' : status.chat ? 'AI chat configured' : 'AI connection needs setup' }}<small v-if="status">Photos {{ status.photo ? 'configured' : 'not verified' }} · Spoken replies {{ status.voice ? 'configured' : 'not configured' }}</small></span><span class="connection-action">Connection details</span></summary>
+      <details v-if="statusError || (status && !status.chat)" class="connection-details">
+        <summary><PlugZap :size="17" aria-hidden="true" /><span>Chat unavailable</span></summary>
       <div class="configuration-note" role="status">
-        <p v-if="status?.chat">Chat is configured. Availability is checked when you send a question, not guaranteed by this check.</p>
         <p v-if="statusError">{{ statusError }}</p>
         <template v-if="status">
           <p v-if="!status.chat"><strong>Chat needs the Cloudflare AI connection.</strong> Open the deployed app, or run <code>npm run cf:dev</code> for a local Worker preview. No Cloudflare Workers AI key is needed. Your question stays here until connected.</p>
@@ -374,9 +379,7 @@ onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', upd
         <li v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
           <p class="message-author">{{ message.role === 'user' ? 'You' : 'FarmBuddyAI' }}</p>
           <p class="message-content">{{ message.content }}</p>
-          <p v-if="message.photo" class="message-note">Photo shared with this question.</p>
-          <p v-if="message.role === 'assistant'" class="message-note">{{ message.contextUsed ? 'Used a limited snapshot of your own farm records.' : 'No farm-record snapshot shared for this answer.' }}</p>
-          <details v-if="message.sources?.length" class="knowledge-sources"><summary>Agricultural references supplied to this answer</summary><p>General guidance, not live outbreak reports or confirmation of a diagnosis. Check the references and local advice.</p><ul><li v-for="source in message.sources" :key="source.id"><a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.id }} · {{ source.title }}</a></li></ul></details>
+          <details v-if="message.sources?.length" class="knowledge-sources"><summary>Sources</summary><ul><li v-for="source in message.sources" :key="source.id"><a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a></li></ul></details>
           <button v-if="message.role === 'assistant' && status?.voice" type="button" class="read-aloud" :disabled="speaking || busy || dictationActive" @click="speak(message)"><Volume2 :size="15" />Read aloud with YarnGPT{{ message.content.length > 4000 ? ' (first 4,000 characters)' : '' }}</button>
         </li>
         <li v-if="busy" class="message assistant pending" role="status">Looking into your question…</li>
@@ -385,11 +388,10 @@ onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', upd
       </div>
       <div class="composer-area">
         <p v-if="photoMode" class="photo-mode-hint"><Camera :size="18" aria-hidden="true" />{{ status?.photo ? 'Add a clear photo, then describe what changed. You review sharing before sending.' : 'Photo analysis is not verified yet. You can describe what you see instead.' }}</p>
-        <div class="farm-context-control"><button type="button" :aria-pressed="includeFarmContext" :disabled="busy || speaking" @click="changeFarmContext(!includeFarmContext)">{{ includeFarmContext ? '✓ Using farm records' : '+ Use farm records' }}</button><details><summary>Sharing details</summary><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to Cloudflare Workers AI when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></details></div>
+        <div class="farm-context-control"><button type="button" :aria-pressed="includeFarmContext" :disabled="busy || speaking" @click="changeFarmContext(!includeFarmContext)">{{ includeFarmContext ? '✓ Using farm records' : '+ Use farm records' }}</button></div>
         <form class="composer" @submit.prevent="send">
-          <div class="composer-heading"><label for="assistant-task">Help with</label><select id="assistant-task" v-model="task" :disabled="busy"><option value="chat">General farming</option><option value="plant-health">Plant health</option><option value="animal-health">Animal health</option><option value="identify-crop">Identify a crop</option></select><span>{{ question.length.toLocaleString() }} / 4,000</span></div>
           <label for="assistant-question" class="sr-only">Your question</label>
-          <textarea id="assistant-question" ref="draft" v-model="question" maxlength="4000" rows="3" required :disabled="busy" placeholder="Tell me what you’ve noticed. What crop or animal, and for how long?" />
+          <textarea id="assistant-question" ref="draft" v-model="question" maxlength="4000" rows="3" required :disabled="busy" placeholder="Ask FarmBuddyAI…" />
           <div v-if="image" class="photo-review"><div class="photo-caption"><img :src="image" alt="Selected farm photo preview"><span>{{ filename }}</span><button type="button" class="icon-button" aria-label="Remove photo" :disabled="busy" @click="removeImage"><X :size="17" /></button></div><p>Send shares this photo with Cloudflare Workers AI.</p></div>
           <div class="composer-actions">
             <div class="input-tools">
@@ -414,7 +416,7 @@ onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', upd
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
         <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
-        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with Cloudflare Workers AI. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation starts only when you press Dictate. With the Cloudflare AI connection, stopping sends up to 60 seconds of audio for Whisper transcription. Otherwise supported browsers use their speech service. Audio is not saved by FarmBuddy. Review the words, then press Send yourself. Language accuracy varies. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared with Cloudflare Workers AI only when you press Send.</p></div></details>
+        <details class="guidance-details"><summary aria-label="About AI guidance and privacy">About</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with Cloudflare Workers AI. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation starts only when you press Dictate. With the Cloudflare AI connection, stopping sends up to 60 seconds of audio for Whisper transcription. Otherwise supported browsers use their speech service. Audio is not saved by FarmBuddy. Review the words, then press Send yourself. Language accuracy varies. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared with Cloudflare Workers AI only when you press Send.</p></div></details>
       </div>
     </div>
   </section>
@@ -460,7 +462,7 @@ onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', upd
 .status-dot { width: 5px; height: 5px; border-radius: 50%; background: #9b8756; }
 .status-dot.ready { background: #4c8453; }
 .farm-type { margin-left: auto; font-size: 11px; color: #65735c; border: 1px solid #d8e1cd; border-radius: 30px; padding: 5px 10px; }
-.new-conversation { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px; border: 1px solid #d8e1cd; border-radius: 9px; font-size: 11px; background: #ffffff70; }
+.new-conversation { display: flex; align-items: center; justify-content: center; gap: 6px; margin-left:auto; padding: 8px 10px; border: 1px solid #d8e1cd; border-radius: 9px; font-size: 11px; background: #ffffff70; }
 .companion-body { display: flex; flex: 1; flex-direction: column; width: 100%; max-width: 920px; margin: 0 auto; padding: 14px 36px 16px; }
 .configuration-note { margin: 0 auto; max-width: 660px; color: #776638; font-size: 11px; line-height: 1.5; text-align: center; }
 .connection-details { width:100%; border-bottom:1px solid #d8e1cd; color:#526C46; }
@@ -514,12 +516,12 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .photo-review label { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
 .photo-review input { margin-top: 2px; }
 /* History scrolls independently so writing never requires finding the page bottom. */
-.chat-workspace { height:calc(var(--chat-viewport-height, 100dvh) - 116px); min-height:0; }
+.chat-workspace { height:var(--chat-available-height, calc(100dvh - 80px)); min-height:0; border-radius:0; border:0; }
 .chat-workspace .companion-bar { padding-block:10px; flex-shrink:0; }
 .chat-workspace .workspace-switch { padding-block:8px; flex-shrink:0; }
 .chat-workspace .workspace-switch button { padding-block:8px; }
 .chat-workspace .workspace-switch small { display:none; }
-.chat-workspace .companion-body { min-height:0; overflow:hidden; padding-top:0; }
+.chat-workspace .companion-body { min-height:0; overflow:hidden; padding-top:0; padding-bottom:8px; box-sizing:border-box; }
 .chat-history { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .chat-history:focus-visible { outline:2px solid #638258; outline-offset:-2px; }
 .chat-workspace .welcome { padding:20px 0; }
@@ -530,9 +532,11 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .chat-workspace .composer textarea { resize:none; min-height:56px; height:56px; max-height:80px; }
 .chat-workspace .farm-context-control { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
 .chat-workspace .farm-context-control details { min-width:0; }
-.chat-workspace .guidance-details { padding-top:2px; }
+.chat-workspace .guidance-details { position:absolute; top:12px; right:160px; padding:0; z-index:5; font-size:12px; }
+.chat-workspace .guidance-details summary { min-height:36px; display:flex; align-items:center; padding:0 10px; cursor:pointer; }
+.chat-workspace .guidance-details>div { position:absolute; top:40px; right:0; width:min(360px,calc(100vw - 40px)); max-height:50dvh; overflow-y:auto; background:white; box-shadow:0 12px 35px #193d2b22; font-size:12px; }
 .chat-workspace .connection-details summary small,.chat-workspace .connection-action { display:none; }
-@media(max-width:640px) { .chat-workspace { height:calc(var(--chat-viewport-height, 100dvh) - 100px); } .chat-workspace .companion-bar { padding:8px 12px; } .chat-workspace .companion-body { padding:0 10px 8px; } .chat-workspace .workspace-switch button { min-height:52px; } .chat-workspace .composer { padding:6px 10px; } .chat-workspace .composer-heading { flex-wrap:nowrap; } .chat-workspace .composer-heading>span { display:none; } }
+@media(max-width:640px) { .chat-workspace .companion-bar { padding:8px 12px; } .chat-workspace .companion-body { padding:0 10px 8px; } .chat-workspace .workspace-switch button { min-height:52px; } .chat-workspace .composer { padding:6px 10px; } .chat-workspace .composer textarea { font-size:16px; } .chat-workspace .guidance-details { right:145px; top:9px; } .chat-workspace .guidance-details>div { right:-125px; } .chat-workspace .input-tools .labeled-tool span { display:none; } .chat-workspace .input-tools .labeled-tool { width:44px; height:44px; padding:10px; } .chat-workspace .input-tools select { max-width:90px; min-height:44px; } .chat-workspace .composer-actions { flex-wrap:nowrap; gap:4px; } .chat-workspace .input-tools { flex-wrap:nowrap; gap:2px; } .chat-workspace .send-button { flex-shrink:0; padding-inline:10px; } }
 .chat-workspace.keyboard-open .companion-bar,.chat-workspace.keyboard-open .workspace-switch,.chat-workspace.keyboard-open .farm-context-control,.chat-workspace.keyboard-open .guidance-details { display:none; }
 .chat-workspace.keyboard-open .composer-area { max-height:100%; }
 .conversation { flex: 1; width: 100%; max-width: 760px; min-width: 0; margin: 12px auto 20px; padding: 8px 0; list-style: none; }
