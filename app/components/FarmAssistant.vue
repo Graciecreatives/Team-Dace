@@ -1,13 +1,22 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { Sprout, Plus, Camera, Mic, ArrowUpRight, X, Leaf, Stethoscope, Volume2 } from 'lucide-vue-next'
+import { Sprout, Plus, Camera, Mic, ArrowUpRight, X, Leaf, Stethoscope, Volume2, MessageCircle, PlugZap } from 'lucide-vue-next'
 const props = defineProps({ user: { type: Object, required: true } })
 const emit = defineEmits(['records-changed'])
 const workspace = ref('chat')
+const photoMode = ref(false)
 function changeWorkspace(value) {
   releaseDictation()
   clearAudio()
   workspace.value = value
+  photoMode.value = false
+}
+async function choosePhotoMode() {
+  changeWorkspace('chat')
+  photoMode.value = true
+  await nextTick()
+  if (status.value?.chat && status.value?.photo) picker.value?.click()
+  else draft.value?.focus()
 }
 const status = ref(null)
 const checkingStatus = ref(false)
@@ -228,18 +237,22 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
 <template>
   <section aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length }">
     <header class="companion-bar">
-      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ status ? (status.chat ? 'AI companion · Configured' : 'AI companion · Not configured') : 'Checking availability…' }}</p></div></div>
+      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ statusError ? 'Connection check failed' : status ? (status.chat ? 'AI chat configured' : 'Setup needed to send') : 'Checking availability…' }}</p></div></div>
       <span class="farm-type">{{ farmLabel }}</span>
       <button v-if="workspace === 'chat'" type="button" class="new-conversation" @click="clearSession"><Plus :size="16" /> <span>New conversation</span></button>
     </header>
 
     <nav class="workspace-switch" aria-label="FarmBuddyAI tools">
-      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'chat'" @click="changeWorkspace('chat')">Chat &amp; photos</button>
-      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="16" /> Voice to farm record</button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'chat' && !photoMode" @click="changeWorkspace('chat')"><MessageCircle :size="22" aria-hidden="true" /><span><strong>Ask a question</strong><small>Work through your next step</small></span></button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Check a photo</strong><small>Show what you have noticed</small></span></button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="22" aria-hidden="true" /><span><strong>Voice to farm record</strong><small>Speak, review, then save</small></span></button>
     </nav>
     <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
     <div v-show="workspace === 'chat'" class="companion-body">
-      <div v-if="statusError || !status || !status.chat || !status.photo || !status.voice" class="configuration-note" role="status">
+      <details class="connection-details">
+        <summary><PlugZap :size="17" aria-hidden="true" /><span>{{ statusError ? 'Connection check failed' : !status ? 'Checking AI availability…' : status.chat ? 'AI chat configured' : 'AI connection needs setup' }}<small v-if="status">Photos {{ status.photo ? 'configured' : 'not verified' }} · Spoken replies {{ status.voice ? 'configured' : 'not configured' }}</small></span><span class="connection-action">Connection details</span></summary>
+      <div class="configuration-note" role="status">
+        <p v-if="status?.chat">Chat is configured. Availability is checked when you send a question, not guaranteed by this check.</p>
         <p v-if="statusError">{{ statusError }}</p>
         <template v-if="status">
           <p v-if="!status.chat"><strong>AI chat and photo analysis need a server connection.</strong> The site owner must add <code>OPENROUTER_API_KEY</code> to the server’s <code>.env</code> file and restart the app. OpenRouter handles text and photo requests. Use a namespaced <code>OPENROUTER_MODEL</code> (or <code>FARMBUDDY_AI_MODEL</code>), default <code>openai/gpt-4.1-mini</code>. Your question stays here until connected.</p>
@@ -249,6 +262,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <p class="mt-2">Never enter or share API keys in the chat. Phone microphone access may require HTTPS.</p>
         <button type="button" class="mt-3 rounded-lg border border-[#cad7c3] px-3 py-2 font-semibold" :disabled="checkingStatus" @click="refreshStatus">{{ checkingStatus ? 'Checking connection…' : 'Check connection again' }}</button>
       </div>
+      </details>
 
       <div v-if="!messages.length" class="welcome">
         <div class="welcome-emblem" aria-hidden="true"><Sprout :size="36" :stroke-width="1.4" /></div>
@@ -273,7 +287,8 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
       </ol>
 
       <div class="composer-area">
-        <div class="farm-context-control"><label><input :checked="includeFarmContext" type="checkbox" :disabled="busy || speaking" @change="changeFarmContext"> Use my farm records for this conversation</label><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to OpenRouter and its routed provider when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></div>
+        <p v-if="photoMode" class="photo-mode-hint"><Camera :size="18" aria-hidden="true" />{{ status?.photo ? 'Add a clear photo, then describe what changed. You review sharing before sending.' : 'Photo analysis is not verified yet. You can describe what you see instead.' }}</p>
+        <div class="farm-context-control"><label><input :checked="includeFarmContext" type="checkbox" :disabled="busy || speaking" @change="changeFarmContext"> Use my farm records for this conversation</label><p>Shares a limited snapshot with OpenRouter when you send. Changing this starts a new conversation.</p><details><summary>What is shared when this is on?</summary><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to OpenRouter and its routed provider when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></details></div>
         <form class="composer" @submit.prevent="send">
           <div class="composer-heading"><label for="assistant-task">Help with</label><select id="assistant-task" v-model="task" :disabled="busy"><option value="chat">General farming</option><option value="plant-health">Plant health</option><option value="animal-health">Animal health</option><option value="identify-crop">Identify a crop</option></select><span>{{ question.length.toLocaleString() }} / 4,000</span></div>
           <label for="assistant-question" class="sr-only">Your question</label>
@@ -282,8 +297,8 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
           <div class="composer-actions">
             <div class="input-tools">
               <input id="assistant-photo" ref="picker" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy || !status?.chat || !status?.photo" @change="chooseImage">
-              <button type="button" class="icon-button" aria-label="Attach a photo, JPEG, PNG or WebP up to 3 MB" title="Attach photo · up to 3 MB" :disabled="busy || !status?.chat || !status?.photo" @click="picker?.click()"><Camera :size="20" /></button>
-              <button type="button" class="icon-button" :class="{ recording: listening }" :aria-label="dictationActive ? 'Stop dictation' : 'Start dictation'" :aria-pressed="dictationActive" aria-describedby="assistant-dictation-privacy" :disabled="!dictationSupported || (!dictationActive && (busy || speaking))" @click="dictationActive ? stopDictation() : startDictation()"><Mic :size="20" /></button>
+              <button type="button" class="icon-button labeled-tool" aria-label="Attach a photo, JPEG, PNG or WebP up to 3 MB" title="Attach photo · up to 3 MB" :disabled="busy || !status?.chat || !status?.photo" @click="picker?.click()"><Camera :size="20" /><span>Photo</span></button>
+              <button type="button" class="icon-button labeled-tool" :class="{ recording: listening }" :aria-label="dictationActive ? 'Stop dictation' : 'Start dictation'" :aria-pressed="dictationActive" aria-describedby="assistant-dictation-privacy" :disabled="!dictationSupported || (!dictationActive && (busy || speaking))" @click="dictationActive ? stopDictation() : startDictation()"><Mic :size="20" /><span>{{ dictationActive ? 'Stop dictation' : 'Dictate' }}</span></button>
               <template v-if="dictationSupported"><label for="assistant-dictation-language" class="sr-only">Dictation language</label><select id="assistant-dictation-language" v-model="dictationLanguage" :disabled="dictationActive || busy || speaking"><option v-for="language in dictationLanguages" :key="language.code" :value="language.code">{{ language.label }}</option></select></template>
               <span v-else class="typing-fallback">Type your question</span>
             </div>
@@ -308,8 +323,10 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
 </template>
 
 <style scoped>
+.farm-context-control summary { font-size:12px; display:flex; align-items:center; text-decoration:underline; }
+.farm-context-control input { width:18px; height:18px; flex-shrink:0; }
 .farm-context-control{max-width:760px;margin:0 auto 12px;padding:12px 16px;border:1px solid #d8e1cd;border-radius:14px;background:#ffffffa8;font-size:12px;line-height:1.7}.farm-context-control label{display:flex;gap:10px;align-items:center;font-weight:700;color:#164e32}.farm-context-control p{margin-top:6px;color:#63765d}.farm-context-control input{accent-color:#066136}.knowledge-sources{font-size:12px;line-height:1.7;margin-top:10px;overflow-wrap:anywhere}.knowledge-sources summary{cursor:pointer;font-weight:700}.knowledge-sources a{color:#066136;text-decoration:underline}.knowledge-sources ul{padding-left:18px;list-style:disc}
-.workspace-switch{display:flex;flex-wrap:wrap;gap:8px;padding:12px 26px;border-bottom:1px solid #375c3510}.workspace-switch button{display:flex;align-items:center;gap:7px;padding:10px 14px;border:1px solid #d8e1cd;border-radius:10px;font-size:12px;background:#ffffff80}.workspace-switch button[aria-pressed=true]{background:#066136;color:#fff;border-color:#066136}.voice-workspace{padding:clamp(12px,3vw,28px);min-width:0}.voice-intro{max-width:800px;font-size:13px;line-height:1.8;margin-bottom:16px}.voice-workspace :deep(.farm-notes){max-width:none}
+.workspace-switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:18px 26px;border-bottom:1px solid #375c3510;background:#fff}.workspace-switch button{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid #d8e1cd;border-radius:14px;font-size:13px;text-align:left;background:#f6f8f2;min-width:0}.workspace-switch strong,.workspace-switch small{display:block}.workspace-switch strong{font-weight:700}.workspace-switch small{margin-top:5px;font-size:11px;line-height:1.5}.workspace-switch button[aria-pressed=true]{background:#066136;color:#fff;border-color:#066136;box-shadow:inset 0 -4px #F9C23C}.workspace-switch svg{flex-shrink:0}.voice-workspace{padding:clamp(12px,3vw,28px);min-width:0}.voice-intro{max-width:800px;font-size:13px;line-height:1.8;margin-bottom:16px}.voice-workspace :deep(.farm-notes){max-width:none}
 .farm-companion {
   position: relative;
   isolation: isolate;
@@ -317,13 +334,13 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
   flex-direction: column;
   min-height: min(740px, calc(100dvh - 140px));
   color: #294638;
-  background: radial-gradient(ellipse at 85% 80%, #f7f1d9 0, transparent 52%), linear-gradient(135deg, #eef4e9, #f7f8ef 60%, #edf2e4);
+  background: #f3f7ef;
   border: 1px solid #dfe7d6;
   border-radius: 24px;
   overflow: hidden;
 }
 .farm-companion::before, .farm-companion::after {
-  content: '';
+  content: none;
   position: absolute;
   z-index: -1;
   width: 490px;
@@ -347,9 +364,16 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
 .new-conversation { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px; border: 1px solid #d8e1cd; border-radius: 9px; font-size: 11px; background: #ffffff70; }
 .companion-body { display: flex; flex: 1; flex-direction: column; width: 100%; max-width: 920px; margin: 0 auto; padding: 14px 36px 16px; }
 .configuration-note { margin: 0 auto; max-width: 660px; color: #776638; font-size: 11px; line-height: 1.5; text-align: center; }
+.connection-details { width:100%; border-bottom:1px solid #d8e1cd; color:#526C46; }
+.connection-details summary { display:flex; align-items:center; gap:10px; min-height:52px; font-size:12px; padding:8px 0; }
+.connection-details summary small { display:block; margin-top:3px; font-size:11px; }
+.connection-action { margin-left:auto; font-weight:700; text-decoration:underline; }
+.connection-details .configuration-note { padding:14px 0; font-size:12px; line-height:1.7; text-align:left; max-width:none; overflow-wrap:anywhere; }
+.photo-mode-hint { display:flex; align-items:flex-start; gap:8px; padding:12px 4px; font-size:13px; line-height:1.6; }
+.photo-mode-hint svg { flex-shrink:0; margin-top:2px; }
 .welcome { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 32px 0 36px; text-align: center; }
 .welcome-emblem { display: grid; place-items: center; width: 72px; height: 72px; margin-bottom: 20px; border-radius: 26px; color: #52754b; background: linear-gradient(145deg, #ffffffc9, #e4edda); border: 1px solid #ffffff; box-shadow: 0 8px 24px #4f673510; transform: rotate(-6deg); }
-.eyebrow { margin: 0 0 12px; color: #718265; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+.eyebrow { margin: 0 0 12px; color: #526C46; font-size: 13px; font-weight: 600; }
 .welcome h3 { margin: 0; font-size: clamp(28px, 3.1vw, 42px); font-weight: 500; letter-spacing: -.045em; line-height: 1.15; }
 .welcome-copy { margin: 16px 0 0; font-size: 13px; line-height: 1.7; color: #6c7964; }
 .starter-prompts { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
@@ -371,6 +395,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
 .icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; color: #607653; }
 .icon-button:hover:not(:disabled) { background: #eef3e7; }
 .icon-button.recording { color: #a13d30; background: #fbece6; }
+.icon-button.labeled-tool { display:flex; width:auto; gap:6px; padding:8px; font-size:12px; }
 .typing-fallback { color: #7a8570; font-size: 10px; }
 .send-button { display: flex; align-items: center; justify-content: center; gap: 10px; background: #355e3d; color: #fff; border-radius: 12px; padding: 10px 14px; font-size: 12px; }
 .send-button:hover:not(:disabled) { background: #244d2d; }
@@ -398,7 +423,21 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .read-aloud { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 10px; color: #4f6e43; text-align: left; }
 .pending { font-size: 12px; color: #65735c; }
 audio { width: 100%; height: 38px; margin-top: 10px; }
+button, summary, .composer select { min-height:44px; }
+.icon-button { min-width:44px; height:44px; }
+.composer textarea { font-size:16px; min-height:100px; }
+.composer-heading { font-size:12px; flex-wrap:wrap; }
+.composer-heading select { font-size:12px; }
+.composer-actions, .input-tools { flex-wrap:wrap; }
+.send-button { min-width:92px; background:#066136; font-weight:700; }
+.farm-context-control label { min-height:44px; }
+.dictation-session.is-listening { border:2px solid #066136; }
 @media (max-width: 640px) {
+  .workspace-switch { padding:12px; gap:6px; }
+  .workspace-switch button { flex-direction:column; align-items:flex-start; padding:12px 8px; gap:8px; font-size:12px; }
+  .workspace-switch small { display:none; }
+  .connection-details summary { flex-wrap:wrap; }
+  .connection-action { margin-left:27px; }
   .farm-companion { border-radius: 18px; }
   .companion-bar { padding: 15px; gap: 8px; flex-wrap: wrap; }
   .farm-type { display: none; }
@@ -408,7 +447,7 @@ audio { width: 100%; height: 38px; margin-top: 10px; }
   .welcome h3 { font-size: 30px; }
   .welcome-copy { font-size: 12px; max-width: 290px; }
   .desktop-break { display: none; }
-  .eyebrow { font-size: 9px; letter-spacing: .09em; }
+  .eyebrow { font-size: 12px; }
   .starter-prompts { gap: 7px; margin-top: 22px; }
   .starter-prompts button { padding: 9px 10px; font-size: 10px; }
   .composer { padding: 12px; border-radius: 16px; }
