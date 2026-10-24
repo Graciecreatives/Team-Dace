@@ -3,19 +3,12 @@
 **Product:** FarmBuddy, Smart AI Farming Management System  
 **Document version:** 1.0  
 **Date:** October 24, 2026  
-**Basis:** Repository implementation, configuration, lockfile and supporting documentation.  
-**Audience:** Product, engineering, design, QA, operations and project stakeholders.
 
-## 1. Purpose and status conventions
+## 1. Purpose
 
 FarmBuddy is a responsive, full-stack web application that brings crop and livestock planning, daily operations, inventory, sales, bookkeeping, a shareable farm shop, farmer connections and AI-assisted guidance into one workspace.
 
 This PRD documents the current product and its requirements. It is not a claim that every integration is enabled in production, that every scenario has passed live acceptance, or that proposed work is already shipped.
-
-- **Implemented:** Present in the application. Availability still depends on authorization and deployment configuration.
-- **Provider-dependent:** Implemented integration requiring a configured provider, network access and available quota.
-- **Experimental:** Deliberately restricted functionality that must not be marketed as validated diagnosis.
-- **Future requirement:** Proposed work, not a current capability.
 
 Where older roadmap descriptions conflict with source code, this document follows the current code. In particular, native Cloudflare Workers AI supplies chat and server-side transcription. Supabase is not the active production authentication or database stack.
 
