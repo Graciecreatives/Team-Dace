@@ -1,45 +1,25 @@
--- Apply explicitly with scripts/supabase-database.mjs schema --apply.
--- This schema must NOT be added to Supabase's exposed API schemas.
-CREATE SCHEMA IF NOT EXISTS farmbuddy_private;
-REVOKE ALL ON SCHEMA farmbuddy_private FROM PUBLIC;
-CREATE TABLE IF NOT EXISTS farmbuddy_private.app_state (
-  id smallint PRIMARY KEY CHECK (id = 1),
-  revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
-  snapshot jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now()
+-- Apply explicitly with wrangler d1 execute <database> --file=server/database/schema.sql.
+-- Singleton document adapter. NULL is uninitialized, never an empty live store.
+CREATE TABLE IF NOT EXISTS app_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0 AND revision <= 9007199254740991),
+  snapshot TEXT CHECK (snapshot IS NULL OR (
+    length(CAST(snapshot AS BLOB)) <= 1000000
+    AND json_valid(snapshot)
+    AND json_type(snapshot, '$') = 'object'
+    AND json_extract(snapshot, '$.version') = 1
+    AND json_type(snapshot, '$.users') = 'array'
+    AND json_type(snapshot, '$.sessions') = 'array'
+    AND json_type(snapshot, '$.records') = 'array'
+    AND json_type(snapshot, '$.reminders') = 'array'
+    AND (json_type(snapshot, '$.enterprises') IS NULL OR json_type(snapshot, '$.enterprises') = 'array')
+    AND (json_type(snapshot, '$.inventory') IS NULL OR json_type(snapshot, '$.inventory') = 'array')
+    AND (json_type(snapshot, '$.referrals') IS NULL OR json_type(snapshot, '$.referrals') = 'array')
+    AND (json_type(snapshot, '$.notes') IS NULL OR json_type(snapshot, '$.notes') = 'array')
+    AND (json_type(snapshot, '$.marketplaceFarms') IS NULL OR json_type(snapshot, '$.marketplaceFarms') = 'array')
+    AND (json_type(snapshot, '$.marketplaceProducts') IS NULL OR json_type(snapshot, '$.marketplaceProducts') = 'array')
+    AND (json_type(snapshot, '$.marketplaceImages') IS NULL OR json_type(snapshot, '$.marketplaceImages') = 'array')
+    AND (json_type(snapshot, '$.farmWorkspaces') IS NULL OR json_type(snapshot, '$.farmWorkspaces') = 'array')
+  ) IS TRUE)
 );
--- Refresh the constraint on explicit re-application too. Existing snapshot data
--- is never rewritten. Invalid existing rows abort the enclosing schema transaction.
-ALTER TABLE farmbuddy_private.app_state DROP CONSTRAINT IF EXISTS app_snapshot_format;
-ALTER TABLE farmbuddy_private.app_state ADD CONSTRAINT app_snapshot_format CHECK (snapshot IS NULL OR (
-    jsonb_typeof(snapshot) = 'object'
-    AND snapshot->'version' = '1'::jsonb
-    AND jsonb_typeof(snapshot->'users') = 'array'
-    AND jsonb_typeof(snapshot->'sessions') = 'array'
-    AND jsonb_typeof(snapshot->'records') = 'array'
-    AND jsonb_typeof(snapshot->'reminders') = 'array'
-    AND jsonb_typeof(snapshot->'enterprises') = 'array'
-    AND jsonb_typeof(snapshot->'inventory') = 'array'
-    AND jsonb_typeof(snapshot->'referrals') = 'array'
-    AND jsonb_typeof(snapshot->'notes') = 'array'
-    AND (NOT (snapshot ? 'marketplaceFarms') OR jsonb_typeof(snapshot->'marketplaceFarms') = 'array')
-    AND (NOT (snapshot ? 'marketplaceProducts') OR jsonb_typeof(snapshot->'marketplaceProducts') = 'array')
-    AND (NOT (snapshot ? 'farmWorkspaces') OR jsonb_typeof(snapshot->'farmWorkspaces') = 'array')
-    AND (NOT (snapshot ? 'marketplaceImages') OR jsonb_typeof(snapshot->'marketplaceImages') = 'array')
-  ) IS TRUE);
-ALTER TABLE farmbuddy_private.app_state ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON ALL TABLES IN SCHEMA farmbuddy_private FROM PUBLIC;
-ALTER DEFAULT PRIVILEGES IN SCHEMA farmbuddy_private REVOKE ALL ON TABLES FROM PUBLIC;
-DO $$
-DECLARE role_name text;
-BEGIN
-  FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated'] LOOP
-    IF EXISTS (SELECT FROM pg_roles WHERE rolname = role_name) THEN
-      EXECUTE format('REVOKE ALL ON SCHEMA farmbuddy_private FROM %I', role_name);
-      EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA farmbuddy_private FROM %I', role_name);
-      EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA farmbuddy_private REVOKE ALL ON TABLES FROM %I', role_name);
-    END IF;
-  END LOOP;
-END $$;
--- NULL means deliberately uninitialized, never a usable empty application state.
-INSERT INTO farmbuddy_private.app_state (id, snapshot) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING;
+INSERT INTO app_state (id, snapshot) VALUES (1, NULL) ON CONFLICT(id) DO NOTHING;

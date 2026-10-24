@@ -16,55 +16,62 @@ export function validateSnapshot(data) {
 }
 
 export function databaseMode(env = process.env) {
-  const mode = env.FARMBUDDY_DATABASE || (env.SUPABASE_DATABASE_URL ? 'supabase' : 'local')
-  if (!['local', 'supabase'].includes(mode)) throw new Error('Invalid FarmBuddy database mode')
-  if (mode === 'supabase' && !env.SUPABASE_DATABASE_URL) throw new Error('Supabase database configuration required')
+  const mode = env.FARMBUDDY_DATABASE || 'local'
+  if (!['local', 'cloudflare'].includes(mode)) throw new Error('Invalid FarmBuddy database mode')
   return mode
 }
 
-export async function connectDatabase(env = process.env) {
+export async function connectDatabase() {
   try {
-    const url = new URL(env.SUPABASE_DATABASE_URL)
-    if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname || !url.username) throw new Error()
-    // URL TLS flags must never override certificate verification.
-    for (const key of [...url.searchParams.keys()]) {
-      if (/^(ssl|sslmode|sslcert|sslkey|sslrootcert)$/i.test(key)) url.searchParams.delete(key)
-    }
-    const { default: postgres } = await import('postgres')
-    return postgres(url.toString(), {
-      ssl: { rejectUnauthorized: true }, prepare: false, max: 3,
-      idle_timeout: 20, connect_timeout: 10, max_lifetime: 1800,
-      onnotice: () => {}, debug: false
-    })
+    const { env } = await import('cloudflare:workers')
+    if (!env.FARMBUDDY_DB?.prepare || !env.FARMBUDDY_DB?.withSession) throw new Error()
+    return env.FARMBUDDY_DB
   } catch {
-    throw new Error('Supabase database configuration unavailable')
+    throw new Error('FarmBuddy D1 binding FARMBUDDY_DB unavailable')
   }
 }
 
-// A singleton row is provisioned explicitly by the schema CLI. Lock even reads,
-// preserving the local store's serial callback semantics across server instances.
-export function createDatabaseStore(sql) {
+export const MAX_SNAPSHOT_BYTES = 1_000_000
+export const MAX_CAS_ATTEMPTS = 8
+
+export function serializeSnapshot(data) {
+  const snapshot = JSON.stringify(validateSnapshot(data))
+  if (new TextEncoder().encode(snapshot).byteLength > MAX_SNAPSHOT_BYTES) {
+    throw new Error('FarmBuddy snapshot exceeds 1000000 byte limit')
+  }
+  return snapshot
+}
+
+// Mutating callbacks may be replayed after conflicts. Keep them free of external
+// side effects. Only the successful revision's result escapes to the caller.
+export function createDatabaseStore(db) {
   return async function databaseStore(operation, mutate = false) {
-    let callbackError
-    try {
-      return await sql.begin(async tx => {
-        await tx`SET LOCAL lock_timeout = '15s'`
-        const rows = await tx`SELECT snapshot FROM farmbuddy_private.app_state WHERE id = 1 FOR UPDATE`
-        if (rows.length !== 1 || rows[0].snapshot === null) throw new Error('uninitialized')
-        const data = validateSnapshot(rows[0].snapshot)
-        let result
-        try { result = await operation(data) } catch (error) { callbackError = error; throw error }
-        if (mutate) {
-          validateSnapshot(data)
-          await tx`UPDATE farmbuddy_private.app_state SET snapshot = ${tx.json(data)}, revision = revision + 1, updated_at = now() WHERE id = 1`
-        }
-        return result
-      })
-    } catch (error) {
-      if (callbackError === error) throw error
-      // Never attach driver errors/causes: URLs, SQL parameters and snapshot data
-      // may contain credentials or private user data.
-      throw new Error('FarmBuddy database unavailable or not initialized')
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      let session, row, data
+      try {
+        // Start each attempt on primary, never an arbitrarily stale replica.
+        session = db.withSession('first-primary')
+        row = await session.prepare('SELECT snapshot, revision FROM app_state WHERE id = 1').first()
+        if (!row || row.snapshot === null || !Number.isSafeInteger(row.revision) || row.revision < 0 || row.revision >= Number.MAX_SAFE_INTEGER) throw new Error()
+        data = validateSnapshot(JSON.parse(row.snapshot))
+      } catch {
+        throw new Error('FarmBuddy database unavailable or not initialized')
+      }
+      // Domain failures retain identity and are never retried or sanitized.
+      const result = await operation(data)
+      if (!mutate) return result
+      const snapshot = serializeSnapshot(data)
+      let changes
+      try {
+        const response = await session.prepare('UPDATE app_state SET snapshot = ?, revision = revision + 1 WHERE id = 1 AND revision = ?').bind(snapshot, row.revision).run()
+        if (!response.success || ![0, 1].includes(response.meta?.changes)) throw new Error()
+        changes = response.meta.changes
+      } catch {
+        // Ambiguous write failures must not replay callbacks.
+        throw new Error('FarmBuddy database unavailable or not initialized')
+      }
+      if (changes === 1) return result
     }
+    throw new Error('FarmBuddy database contention: retry limit exceeded')
   }
 }

@@ -15,7 +15,7 @@ export function store(operation, mutate = false) {
   // rejected rather than ever creating a local empty replacement database.
   let mode
   try { mode = databaseMode() } catch (error) { return Promise.reject(error) }
-  if (mode === 'supabase') {
+  if (mode === 'cloudflare') {
     databaseStore ||= connectDatabase().then(createDatabaseStore)
     return databaseStore.then(run => run(operation, mutate))
   }
