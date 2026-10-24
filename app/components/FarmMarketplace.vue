@@ -1,4 +1,5 @@
 <script setup>
+import { prepareProductPhoto } from '../utils/product-photo.js'
 const props = defineProps({ user: { type: Object, required: true } })
 const farm = reactive({ slug: '', name: '', contact: '', contactConsent: false, published: false })
 const emptyProduct = () => ({ name: '', description: '', price: '', quantity: '', unit: 'kg', currency: 'NGN', imageUrl: '', published: false })
@@ -15,17 +16,20 @@ async function uploadPhoto(event) {
   event.target.value = ''
   if (!file || busy.value || uploadingPhoto.value || !loaded.value) return
   error.value = ''; feedback.value = ''
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { error.value = 'Choose JPEG, PNG or WebP. Export HEIC photos as JPEG first.'; return }
-  if (file.size > 8 * 1024 * 1024) { error.value = 'Choose a photo up to 8 MB.'; return }
   const token = generation
   uploadingPhoto.value = true
-  uploadController = new AbortController()
+  const controller = new AbortController()
+  uploadController = controller
+  let preparing = true
   try {
-    const result = await $fetch('/api/product-images', { method: 'POST', body: file, headers: { 'Content-Type': file.type }, timeout: 60000, signal: uploadController.signal })
+    const photo = await prepareProductPhoto(file, { signal: controller.signal })
+    if (token !== generation || controller.signal.aborted) return
+    preparing = false
+    const result = await $fetch('/api/product-images', { method: 'POST', body: photo, headers: { 'Content-Type': 'image/jpeg' }, timeout: 60000, signal: controller.signal })
     if (token !== generation) return
     draft.imageUrl = result.imageUrl
     feedback.value = 'Photo uploaded and GPS metadata removed. Save the product to attach it. It stays private until the product and storefront are published.'
-  } catch (cause) { if (token === generation) error.value = cause?.data?.statusMessage || 'Photo upload was not confirmed. Try again when connected.' }
+  } catch (cause) { if (token === generation) error.value = preparing ? (cause?.message || 'Could not prepare this photo. Try another picture.') : (cause?.data?.statusMessage || 'Photo upload was not confirmed. Try again when connected.') }
   finally { if (token === generation) uploadingPhoto.value = false }
 }
 let generation = 0
@@ -89,7 +93,7 @@ onUnmounted(() => { generation++; uploadController?.abort() })
       <div class="fields"><label>Price per unit<input v-model="draft.price" type="number" required min="0.01" max="1000000000" step="0.01"></label><label>Currency<select v-model="draft.currency"><option v-for="code in ['NGN','USD','GBP','EUR','GHS','KES','ZAR']" :key="code">{{ code }}</option></select></label><label>Quantity available<input v-model="draft.quantity" type="number" required min="0" max="1000000000" step="any"></label><label>Unit<input v-model="draft.unit" required maxlength="40" placeholder="kg, crate, bag"></label></div>
       <div class="photo-upload">
         <h4>Product photo</h4>
-        <p>Choose a picture from your phone or take a new one. JPEG, PNG or WebP, up to 8 MB. Photos are resized and location metadata is removed.</p>
+        <p>Choose a picture from your phone or take a new one. JPEG, PNG or WebP, up to 20 MB and 40 megapixels. Your browser reduces it to 1600 pixels before upload. Photos are checked again and location metadata is removed on the server.</p>
         <input id="product-photo-upload" ref="photoPicker" type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" :disabled="busy || uploadingPhoto || !loaded" @change="uploadPhoto">
         <input id="product-photo-camera" ref="cameraPicker" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="sr-only" :disabled="busy || uploadingPhoto || !loaded" @change="uploadPhoto">
         <div class="photo-actions"><button type="button" :disabled="busy || uploadingPhoto || !loaded" @click="photoPicker?.click()">{{ uploadingPhoto ? 'Uploading photo…' : 'Choose from phone or computer' }}</button><button type="button" :disabled="busy || uploadingPhoto || !loaded" @click="cameraPicker?.click()">Take a photo</button></div>
