@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import * as Vue from 'vue'
-import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import * as helpers from '../utils/bookkeeping.js'
 import { amountToCents, entryMonth, filterEntries, summarizeEntries, monthlySummary, csvCell, exportEntriesCsv } from '../utils/bookkeeping.js'
 const records = [
@@ -64,7 +64,7 @@ const createState = new Function('Vue', 'helpers', 'defineProps', 'defineEmits',
   const { computed, ref, watch } = Vue
   const { amountToCents, entryMonth, filterEntries, summarizeEntries, monthlySummary, exportEntriesCsv } = helpers
   ${script}
-  return { month, search, category, tab, entries, totals, monthly, chartMonths, exportCsv, exportMessage, exportError }
+  return { month, search, category, tab, entries, totals, monthly, chartMonths, cashScale, exportCsv, exportMessage, exportError }
 `)
 function harness(fail = '') {
   const props = Vue.reactive({ records: records.map(record => ({ ...record })), userId: 'a', deleting: '' })
@@ -79,9 +79,41 @@ function harness(fail = '') {
 test('bookkeeping SFC and actual template compile', () => {
   const compiled = compileScript(descriptor, { id: 'bookkeeping' })
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: 'FarmBookkeeping.vue', id: 'bookkeeping', compilerOptions: { bindingMetadata: compiled.bindings } }).errors, [])
+  assert.deepEqual(compileStyle({ source: descriptor.styles[0].content, id: 'bookkeeping', scoped: true }).errors, [])
   assert.match(source, /<template v-else><FbButton[^>]+Edit/)
   assert.match(source, /v-if="entry.sourceId"/)
   assert.match(source, /<details class="disclaimer">/)
+})
+test('cashbook proportions use actual period cents and never invent a nonzero empty bar', () => {
+  const h = harness()
+  assert.equal(h.state.cashScale.value, 1028)
+  h.state.search.value = 'not found'
+  assert.equal(h.state.cashScale.value, 1028)
+  h.state.month.value = '2026-09'
+  assert.equal(h.state.cashScale.value, 10)
+  assert.equal(h.state.totals.value.incomeCents, 0)
+  assert.equal(h.state.totals.value.expenseCents / h.state.cashScale.value, 1)
+  h.props.records = [{ id: 'bad', category: 'income', amount: 'bad', createdAt: '2026-09-01' }]
+  assert.equal(h.state.cashScale.value, 1)
+  assert.equal(h.state.totals.value.incomeCents, 0)
+  assert.equal(h.state.totals.value.invalidCount, 1)
+  h.props.records = []
+  assert.equal(h.state.cashScale.value, 1)
+  assert.equal(h.state.totals.value.netCents, 0)
+  h.stop()
+})
+test('cashbook presents labeled money directions, responsive spread, focus and reduced motion', () => {
+  assert.match(source, /Receive money/)
+  assert.match(source, /Spend money/)
+  assert.match(source, /class="cashbook-spread"/)
+  assert.match(source, /Money in/)
+  assert.match(source, /Money out/)
+  assert.match(source, /class="bar-label">In/)
+  assert.match(source, /class="bar-label">Out/)
+  assert.match(source, /min-height:44px/)
+  assert.match(source, /max-width:380px/)
+  assert.match(source, /focus-visible/)
+  assert.match(source, /prefers-reduced-motion:reduce/)
 })
 test('actual Vue filters and monthly chart follow data without changing source or period totals', () => {
   const h = harness()

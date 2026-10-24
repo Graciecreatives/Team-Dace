@@ -10,7 +10,7 @@ function harness(initial = {}) {
   const emitted = [], scope = vue.effectScope()
   const dependencies = { ...helpers, computed: vue.computed, reactive: vue.reactive, ref: vue.ref, watch: vue.watch, nextTick: vue.nextTick, onMounted() {}, onUnmounted() {}, defineProps: () => props, defineEmits: () => (...args) => emitted.push(args) }
   const script = parse(source).descriptor.scriptSetup.content.replace(/^import .*$/gm, '')
-  const state = scope.run(() => new Function(...Object.keys(dependencies), script + '\nreturn { money, filters, records, reminders, counts, act, clearFilters, month, view, cells, selectDay, moveMonth, goToday, today, dayKey, calendar, dayCounts }')(...Object.values(dependencies)))
+  const state = scope.run(() => new Function(...Object.keys(dependencies), script + '\nreturn { money, filters, records, reminders, counts, act, clearFilters, month, view, cells, selectDay, moveMonth, goToday, today, dayKey, calendar, dayCounts, recordGroups, dayProgress, focusDate, focusReminders, shownReminders }')(...Object.values(dependencies)))
   return { props, state, emitted, stop: () => scope.stop() }
 }
 test('journal financial labels preserve NGN and do not invent values', () => {
@@ -51,6 +51,47 @@ test('civil dates, leap years, month rollover and grids remain correct across ti
     }
   } finally { if (original === undefined) delete process.env.TZ; else process.env.TZ = original }
   assert.deepEqual(helpers.monthGrid('bad'), [])
+})
+test('story groups actual records by descending civil day without changing identity', () => {
+  const sameDay = { id: 'r3', title: 'Check seedlings', category: 'activity', date: '2026-10-24' }
+  const h = harness({ records: [...records, sameDay, { id: 'private', userId: 'other', date: '2026-10-24' }] })
+  assert.deepEqual(h.state.recordGroups.value.map(group => [group.date, group.records.map(row => row.id)]), [
+    ['2026-10-24', ['r2', 'r3']], ['2026-10-22', ['r1']],
+  ])
+  assert.equal(h.state.recordGroups.value[0].records[0].sourceId, 'task')
+  h.state.filters.search = 'harvest'
+  assert.deepEqual(h.state.recordGroups.value.map(group => group.date), ['2026-10-22'])
+  h.props.userId = ''
+  assert.deepEqual(h.state.recordGroups.value, [])
+  h.stop()
+})
+test('calendar agenda focuses today then selected day, with actual completion and a full-list escape', () => {
+  const h = harness({ mode: 'reminders', reminders: reminders.map(row => ({ ...row })) }), s = h.state
+  s.today.value = '2026-10-24'
+  assert.equal(s.filters.date, '')
+  assert.deepEqual(s.shownReminders.value.map(row => row.id), ['m2', 'm3'])
+  assert.deepEqual(s.dayProgress.value['2026-10-24'], { total: 2, completed: 1 })
+  s.selectDay('2026-10-23')
+  assert.deepEqual(s.shownReminders.value.map(row => row.id), ['m1'])
+  s.view.value = 'list'; s.filters.date = ''
+  assert.equal(s.shownReminders.value.length, 4)
+  h.props.reminders[1].completed = true
+  assert.deepEqual(s.dayProgress.value['2026-10-24'], { total: 2, completed: 2 })
+  s.filters.status = 'open'
+  assert.equal(s.dayProgress.value['2026-10-24'], undefined)
+  h.props.userId = ''
+  assert.deepEqual(s.shownReminders.value, [])
+  h.stop()
+})
+test('journal layout has labeled completion, accessible calendar targets and reduced motion', () => {
+  assert.match(source, /class="story-date"/)
+  assert.match(source, /class="filter-drawer"/)
+  assert.match(source, /class="completion-icon"/)
+  assert.match(source, /completed`/)
+  assert.match(source, /minmax\(44px,1fr\)/)
+  assert.match(source, /calendar-scroll\{overflow-x:auto/)
+  assert.match(source, /prefers-reduced-motion:reduce/)
+  assert.match(source, /focus-visible/)
 })
 const records = [{ id: 'r1', title: 'Harvest', note: 'Maize', category: 'income', date: '2026-10-22' }, { id: 'r2', title: 'Water', category: 'activity', date: '2026-10-24', sourceId: 'task' }]
 const reminders = [{ id: 'm1', title: 'Water', date: '2026-10-23', completed: false }, { id: 'm2', title: 'Feed', date: '2026-10-24', completed: false }, { id: 'm3', title: 'Water old', date: '2026-10-24', completed: true }, { id: 'm4', title: 'Invalid date', date: 'bad', completed: false }]
