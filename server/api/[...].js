@@ -1,6 +1,7 @@
 import { isIP } from 'node:net'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createError, defineEventHandler, deleteCookie, getCookie, getHeader, getRequestIP, getRequestURL, setCookie, setHeader } from 'h3'
+import { readBoundedBytes } from '../utils/request-body.js'
 import { store } from '../utils/store.js'
 import { authConfig, hashPassword, verifyPassword, passwordNeedsUpgrade } from '../utils/auth.js'
 
@@ -73,19 +74,9 @@ function mutationGuard(event) {
 
 async function body(event) {
   if ((getHeader(event, 'content-type') || '').split(';')[0].trim().toLowerCase() !== 'application/json') fail(415, 'Expected application/json')
-  if (Number(getHeader(event, 'content-length')) > 16384) fail(413, 'Request too large')
-  const chunks = []
-  let size = 0
-  for await (const chunk of event.node.req.iterator({ destroyOnReturn: false })) {
-    size += Buffer.byteLength(chunk)
-    if (size > 16384) {
-      event.node.req.resume()
-      fail(413, 'Request too large')
-    }
-    chunks.push(Buffer.from(chunk))
-  }
+  const bytes = await readBoundedBytes(event, 16384)
   let value
-  try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { fail(400, 'Invalid JSON') }
+  try { value = JSON.parse(bytes.toString('utf8')) } catch { fail(400, 'Invalid JSON') }
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(400, 'Expected an object')
   return value
 }

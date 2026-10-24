@@ -2,7 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createApp, defineEventHandler, toNodeListener } from 'h3'
-import handler, { mutationGuard, authenticationClientIP, cookieOptions } from '../server/api/[...].js'
+import handler, { mutationGuard, authenticationClientIP, cookieOptions, body } from '../server/api/[...].js'
+
+test('API JSON parser reads bounded Nitro buffered bodies without unsupported iterator', async () => {
+  const event = raw => ({ node: { req: { headers: { 'content-type': 'application/json' }, body: raw, iterator() { throw new Error('Worker iterator unsupported') } } } })
+  assert.deepEqual(await body(event(Buffer.from('{"email":"farmer@example.test"}'))), { email: 'farmer@example.test' })
+  assert.deepEqual(await body(event('{"ok":true}')), { ok: true })
+  await assert.rejects(body(event(Buffer.alloc(16385))), error => error.statusCode === 413)
+  await assert.rejects(body(event('{broken')), error => error.statusCode === 400)
+  await assert.rejects(body(event('[]')), error => error.statusCode === 400)
+})
 
 test('trusted platform Request preserves public origin, cookie security and per-client throttling', async () => {
   const saved = process.env.NODE_ENV
