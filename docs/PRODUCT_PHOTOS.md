@@ -1,25 +1,23 @@
 # Marketplace product photos
 
-The product editor now accepts photos from a phone gallery/computer and offers a separate camera picker. A browser decides whether its camera picker is available. JPEG, PNG and WebP inputs up to 8 MB and 40 megapixels are decoded server-side with sharp, rotated according to orientation, resized within 1600 × 1600 and saved as JPEG. EXIF/GPS metadata is stripped. HEIC must first be exported as JPEG. Raw uploaded files are never served.
+The product editor accepts phone-gallery/computer photos and has a separate camera picker. Browser camera support varies. JPEG, PNG and WebP are supported. HEIC must first be exported as JPEG. Raw uploaded files are never served.
 
-Uploads are account-owned. Save the product to attach its uploaded photo. Both the product and storefront must be published before anyone else can fetch the image. Draft/unused images are available only to their owner. Removing a photo from the form detaches it, it does not delete the stored file. There is a 500-photo account limit, ten attempts per minute and two concurrent server uploads. Unused-photo garbage collection is not implemented, so storage lifecycle/administrative cleanup remains an operator responsibility. Do not treat obscure image URLs as access control.
+The server verifies file signatures and dimensions, actually decodes pixels with a Worker-compatible WASM codec, applies EXIF orientation, resizes within 1600 × 1600, flattens transparency to white and re-encodes JPEG without EXIF/GPS metadata. Uploads are limited to 8 MiB and stored JPEGs to 4 MiB. Cloudflare inputs are additionally capped at 4 megapixels to bound Worker memory, while Node local inputs allow up to 40 megapixels. The picker prepares larger phone photos before uploading when supported, with errors shown rather than pretending an upload succeeded.
+
+Photos are account-owned. Saving a product attaches the uploaded photo. Both product and storefront must be published before anyone else can fetch it. Draft/unused images are available only to their owner. The server checks publication again after reading object storage. Removing a photo from the form detaches it, but does not delete the stored object. Limits are 500 photos per account, ten upload attempts per minute and two concurrent uploads per isolate. Unused-photo garbage collection remains an operator responsibility. Obscure URLs are not access control.
+
+## Cloudflare production
+
+`FARMBUDDY_DATABASE=cloudflare` requires private R2 photo storage. `FARMBUDDY_IMAGES` is a binding to the `farmbuddy-products` bucket in `wrangler.jsonc`. No R2 API keys or public bucket URLs are sent to browsers. The bucket is private and no `r2.dev` access is enabled. Application routes enforce account and publication checks. Missing bindings or storage failures fail closed, with no local-disk fallback.
+
+Upload and download requests go through the FarmBuddy backend. The stored object uses an account-hashed prefix and random image ID. Hosted photos can appear directly in published storefronts. Optional external HTTPS product images still require buyer opt-in before contacting that external host.
+
+Provisioning, one-time snapshot migration and deployment are covered in `CLOUDFLARE.md`. JSON migration alone does not copy image blobs. The current installation had no saved image metadata at cutover. For another installation with local photos, preserve backups and explicitly migrate blobs or re-upload and save each affected product. Never relabel local metadata as cloud storage without copying the object.
 
 ## Local development
 
-With local database mode and no Supabase storage configuration, files live in `.data/uploads` beside the JSON snapshot. `FARMBUDDY_UPLOAD_DIR` can override the directory. Back up BOTH the JSON snapshot and uploads. Local files require persistent disk and are not suitable for multi-instance or ephemeral production hosting.
-
-## Supabase production
-
-1. Provision the database and import existing account/feature data using `docs/SUPABASE_DATABASE.md`. This does not migrate image blobs.
-2. Review and run `supabase/product-images.sql` in your project's SQL editor. It creates a **private** `farm-products` bucket and restricts browser-role access to its objects. It refuses an already-public bucket rather than altering existing data. Keep that bucket private. If you use a custom bucket, adapt the SQL and policies deliberately.
-3. Set server-only `SUPABASE_URL` to your project HTTPS origin, `SUPABASE_SERVICE_ROLE_KEY` to its private service-role key, and `SUPABASE_STORAGE_BUCKET=farm-products`. This service key is NOT the public anon key and is different from `SUPABASE_DATABASE_URL`. Never expose it in NUXT_PUBLIC config, the browser, Git or chat.
-4. Set `FARMBUDDY_DATABASE=supabase`. Photo storage automatically uses Supabase. A local image-storage override is refused with a Supabase database. Missing credentials, public buckets and storage outages fail closed without writing local replacements.
-5. Restart the server, upload a disposable photo, confirm owner-only preview, publish a test product/storefront, and confirm public viewing. Unpublish and confirm public access is denied. Validate this against your own cloud project before rollout.
-
-Uploads and downloads go through bounded server-side Storage requests and the application authorization layer. No service-role key or signed storage URL is returned to clients. Hosted product photos load directly on public storefronts. External HTTPS images remain optional and require the buyer's opt-in before the browser requests them.
-
-**Cutover:** importing JSON preserves photo metadata but does not copy local image files into Storage. Old local photos deliberately cannot be served in Supabase mode. Re-upload those photos after cutover and save the affected products, while preserving private local backups. Do not delete old files or switch providers expecting automatic synchronization.
+`npm run host` with local database/storage keeps files under `.data/uploads` beside `.data/farmbuddy.json`. `FARMBUDDY_UPLOAD_DIR` can override the directory. Back up both snapshot and uploads. Local files require persistent disk and one process. `npm run cf:dev` instead uses emulated D1 and R2 under `.wrangler/`, separate from remote resources.
 
 ## Verification
 
-`node --test tests/product-images.test.js` covers real decoding/orientation/metadata removal, input rejection, safe private Storage requests with mocked networking, ownership, publication privacy and cross-farm attachment denial. `npm run test:production` after building checks upload packaging and photo persistence across a real server restart. No paid/live cloud requests are made by these tests.
+`node --test tests/product-images.test.js` checks actual decoding, orientation, metadata removal, input rejection, private R2 object access, ownership, publication and cross-farm attachment denial. Native sharp is a development-only fixture/verification dependency, not the production codec. `server/tests/cloudflare.mjs` exercises the built Worker, D1 connected business flow and actual local/remote R2 photos. Node restart coverage remains in `npm run test:production` after a Node build. Tests make no live AI/voice calls.

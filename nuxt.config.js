@@ -1,6 +1,13 @@
 export default defineNuxtConfig({
   devServer: { host: '::', port: 3000 },
-  compatibilityDate: '2025-07-15',
+  compatibilityDate: '2026-10-24',
+  nitro: {
+    experimental: { wasm: true },
+    cloudflare: { nodeCompat: true },
+    ...(process.env.NITRO_PRESET?.startsWith('cloudflare') ? {
+      alias: { '@cf-wasm/photon/node': '@cf-wasm/photon/workerd' },
+    } : { alias: { '@cf-wasm/photon/workerd': '@cf-wasm/photon/node' } }),
+  },
   devtools: { enabled: true },
   runtimeConfig: {
     public: {

@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "farmbuddy",
+  "account_id": "eedfbfafc0fb362af6380bb4c1286c7b",
+  "main": ".output/server/index.mjs",
+  "compatibility_date": "2026-10-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "directory": ".output/public",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "NODE_ENV": "production",
+    "FARMBUDDY_AUTH": "cloudflare",
+    "FARMBUDDY_DATABASE": "cloudflare",
+    "FARMBUDDY_IMAGE_STORAGE": "cloudflare",
+    "OPENROUTER_MODEL": "openai/gpt-4.1-mini"
+  },
+  "d1_databases": [
+    {
+      "binding": "FARMBUDDY_DB",
+      "database_name": "farmbuddy-db",
+      "database_id": "e80d115a-8941-4d9a-b734-92a82ad45e27"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FARMBUDDY_IMAGES",
+      "bucket_name": "farmbuddy-products"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  }
+}

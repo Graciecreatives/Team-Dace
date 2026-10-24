@@ -53,9 +53,9 @@ On a trusted device, opt into **Offline field capture**. This can cache the sele
 
 ## Environment and database rollout
 
-Use `.env.example` and `docs/SUPABASE_AUTH.md` for credentials. These workflows need no additional paid API keys. They persist in the existing private PostgreSQL snapshot in `farmWorkspaces`, alongside canonical inventory and bookkeeping arrays.
+Use `.env.example` and `docs/CLOUDFLARE.md` for configuration. These workflows need no additional third-party API keys. They persist in the private D1 snapshot in `farmWorkspaces`, alongside canonical inventory and bookkeeping arrays.
 
-Legacy snapshots without `farmWorkspaces` gain an empty optional collection in memory without losing existing data. Present non-array values are rejected, not silently overwritten. For an existing Supabase installation, rerun the explicit schema command after reviewing the migration: `node scripts/supabase-database.mjs schema --apply`. It refreshes constraints without rewriting data. Do not re-import over an initialized database. See `docs/SUPABASE_DATABASE.md`.
+Legacy snapshots without `farmWorkspaces` gain an empty optional collection in memory without losing existing data. Present non-array values are rejected, not silently overwritten. Cloudflare D1 uses revision compare-and-swap to commit connected operations atomically. Provisioning and one-time non-overwriting migration are described in `docs/CLOUDFLARE.md`. Do not re-import over an initialized database.
 
 ## Validation
 

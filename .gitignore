@@ -3,4 +3,9 @@ node_modules
 .output
 data/*.db*
 .env
+.env.*
+!.env.example
+.dev.vars*
+.wrangler/
 .data/
+worker-configuration.d.ts

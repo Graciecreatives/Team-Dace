@@ -4,23 +4,30 @@
   "type": "module",
   "scripts": {
     "build": "nuxt build",
+    "build:cloudflare": "NITRO_PRESET=cloudflare_module nuxt build",
+    "cf:dev": "node scripts/cloudflare-secrets.mjs --local && npm run build:cloudflare && wrangler dev --port 8787 --ip 0.0.0.0",
+    "cf:deploy": "npm run build:cloudflare && wrangler deploy",
+    "cf:secrets": "node scripts/cloudflare-secrets.mjs",
+    "cf:types": "wrangler types",
     "dev": "nuxt dev",
     "host": "nuxt dev --host 0.0.0.0 --port 3000 --no-fork --strictPort",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "test": "node scripts/test.mjs",
     "test:production": "node server/tests/production.mjs",
-    "database": "node scripts/supabase-database.mjs",
-    "test:database": "node --test server/tests/database-postgres.mjs",
+    "database": "node scripts/cloudflare-database.mjs",
+    "test:database": "node --test tests/database.test.js",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@cf-wasm/photon": "^0.4.0",
     "@nuxtjs/tailwindcss": "^6.14.0",
-    "@supabase/supabase-js": "^2.118.0",
     "leaflet": "^1.9.4",
     "lucide-vue-next": "^1.0.0",
-    "nuxt": "^4.0.3",
-    "postgres": "^3.4.9",
-    "sharp": "^0.35.5"
+    "nuxt": "^4.0.3"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.5",
+    "wrangler": "^4.152.0"
   }
 }
