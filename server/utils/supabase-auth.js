@@ -22,6 +22,7 @@ async function refreshSession(client, refreshToken) {
   } catch (error) { refreshing.delete(key); throw error }
 }
 const unavailable = () => createError({ statusCode: 503, statusMessage: 'Authentication service unavailable' })
+const configurationUnavailable = () => createError({ statusCode: 503, statusMessage: 'Supabase authentication is not configured. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or SUPABASE_ANON_KEY) in the server environment, then restart.' })
 const denied = () => createError({ statusCode: 401, statusMessage: 'Invalid email or password' })
 export const authCookieNames = ['farmbuddy_access', 'farmbuddy_refresh']
 const options = () => ({ httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' })
@@ -54,7 +55,7 @@ export function confirmationRedirect() {
 }
 export function authClient(event) {
   const config = authConfig()
-  if (!config.configured) throw unavailable()
+  if (!config.configured) throw configurationUnavailable()
   const fetcher = event.context.supabaseAuthFetch || globalThis.fetch
   return createClient(config.url, config.key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -127,7 +128,7 @@ export async function resolveSupabaseAuth(event) {
     const path = getRequestURL(event).pathname.replace(/\/$/, '')
     // Logout must clear browser credentials even when deployment configuration is broken.
     if (path === '/api/auth/logout') return
-    if (!config.configured) throw unavailable()
+    if (!config.configured) throw configurationUnavailable()
     if (['/api/auth/register', '/api/auth/login'].includes(path)) return
     const access = getCookie(event, authCookieNames[0])
     const refresh = getCookie(event, authCookieNames[1])
@@ -151,7 +152,12 @@ export async function resolveSupabaseAuth(event) {
     }
     if (identity) verified.set(event, identity)
     else clearAuthCookies(event)
-  })()
+  })().catch(error => {
+    // Page rendering must remain available for setup/recovery. Private API
+    // requests still fail closed, and protected pages check their session API.
+    if (!requestPath.startsWith('/api/') && error.statusCode === 503) return
+    throw error
+  })
   resolved.set(event, promise)
   return promise
 }

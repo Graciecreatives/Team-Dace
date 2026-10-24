@@ -20,6 +20,8 @@ onMounted(() => {
   }
 })
 const requestFetch = useRequestFetch()
+const { data: authConfiguration } = await useFetch('/api/auth/config')
+const setupRequired = computed(() => authConfiguration.value?.mode === 'supabase' && authConfiguration.value.configured === false)
 let currentUser = null
 try {
   const response = await requestFetch('/api/auth/me')
@@ -34,7 +36,7 @@ function destination(user) {
 if (currentUser) await navigateTo(destination(currentUser), { replace: true })
 
 async function submit() {
-  if (loading.value) return
+  if (loading.value || setupRequired.value) return
   error.value = ''
   loading.value = true
   try {
@@ -61,6 +63,7 @@ async function submit() {
     <p class="auth-description">Sign in to FarmBuddy. Let's pick up where your farm left off.</p>
     <p v-if="confirmationNotice" role="status" class="rounded-xl border border-[#D6E1CB] bg-[#F1F5E9] p-4 text-sm leading-6 text-[#193D2B]">{{ confirmationNotice }}</p>
     <form class="auth-form" :aria-busy="loading" @submit.prevent="submit">
+      <div v-if="setupRequired" class="error-message" role="alert">Supabase setup is incomplete. Add your project URL as SUPABASE_URL and your publishable key as SUPABASE_PUBLISHABLE_KEY in the private .env file, then restart the server. Updating .env.example alone does not configure the app.</div>
       <div v-if="error" ref="errorBox" class="error-message" role="alert" tabindex="-1">{{ error }}</div>
       <div class="field">
         <label for="login-email">Email address</label>
@@ -73,7 +76,7 @@ async function submit() {
           <button class="reveal" type="button" :aria-label="showPassword ? 'Hide password' : 'Show password'" :aria-pressed="showPassword" aria-controls="login-password" @click="showPassword = !showPassword"><component :is="showPassword ? EyeOff : Eye" :size="19" aria-hidden="true" /></button>
         </div>
       </div>
-      <button class="submit-button" type="submit" :disabled="loading"><span aria-live="polite">{{ loading ? 'Signing in…' : 'Sign in' }}</span><ArrowRight v-if="!loading" :size="18" aria-hidden="true" /></button>
+      <button class="submit-button" type="submit" :disabled="loading || setupRequired"><span aria-live="polite">{{ loading ? 'Signing in…' : 'Sign in' }}</span><ArrowRight v-if="!loading" :size="18" aria-hidden="true" /></button>
     </form>
     <p class="switch-link">New to FarmBuddy? <NuxtLink to="/register">Create an account</NuxtLink></p>
   </AuthShell>

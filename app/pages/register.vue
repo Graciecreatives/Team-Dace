@@ -15,6 +15,8 @@ const errorBox = ref(null)
 const confirmation = ref('')
 const confirmationBox = ref(null)
 const requestFetch = useRequestFetch()
+const { data: authConfiguration } = await useFetch('/api/auth/config')
+const setupRequired = computed(() => authConfiguration.value?.mode === 'supabase' && authConfiguration.value.configured === false)
 let currentUser = null
 try {
   const response = await requestFetch('/api/auth/me')
@@ -29,7 +31,7 @@ function destination(user) {
 if (currentUser) await navigateTo(destination(currentUser), { replace: true })
 
 async function submit() {
-  if (loading.value) return
+  if (loading.value || setupRequired.value) return
   error.value = ''
   confirmation.value = ''
   loading.value = true
@@ -63,6 +65,7 @@ async function submit() {
     <p class="auth-description">Create your account and make a little more room for growth.</p>
     <div v-if="confirmation" ref="confirmationBox" role="status" tabindex="-1" class="confirmation-message"><strong>One more step: confirm your email.</strong><p>{{ confirmation }}</p><NuxtLink to="/login">Go to sign in <ArrowRight :size="16" aria-hidden="true" /></NuxtLink></div>
     <form v-if="!confirmation" class="auth-form" :aria-busy="loading" @submit.prevent="submit">
+      <div v-if="setupRequired" class="error-message" role="alert">Supabase setup is incomplete. Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY to the private .env file and restart the server. Use your project's publishable key, not its service-role key. Updating .env.example alone does not configure the app.</div>
       <div v-if="error" ref="errorBox" class="error-message" role="alert" tabindex="-1">{{ error }}</div>
       <div class="field">
         <label for="register-name">Your name</label>
@@ -90,7 +93,7 @@ async function submit() {
           <select id="register-type" v-model="farmType" name="farmType" :disabled="loading"><option value="mixed">Mixed farming</option><option value="crops">Crops</option><option value="livestock">Livestock</option><option value="poultry">Poultry</option></select>
         </div>
       </div>
-      <button class="submit-button" type="submit" :disabled="loading"><span aria-live="polite">{{ loading ? 'Creating your account…' : 'Create account' }}</span><ArrowRight v-if="!loading" :size="18" aria-hidden="true" /></button>
+      <button class="submit-button" type="submit" :disabled="loading || setupRequired"><span aria-live="polite">{{ loading ? 'Creating your account…' : 'Create account' }}</span><ArrowRight v-if="!loading" :size="18" aria-hidden="true" /></button>
     </form>
     <p class="switch-link">Already growing with us? <NuxtLink to="/login">Sign in</NuxtLink></p>
   </AuthShell>

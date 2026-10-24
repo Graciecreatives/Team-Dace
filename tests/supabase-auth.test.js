@@ -54,7 +54,7 @@ test('Supabase auth with real h3 middleware and mocked official SDK transport', 
   app.use(defineEventHandler(event => { event.context.supabaseAuthFetch = mockFetch }))
   app.use(middleware)
   app.use(defineEventHandler(event => {
-    if (event.path === '/dashboard') return { page: true }
+    if (['/', '/login', '/register', '/dashboard'].includes(event.path)) return { page: true }
   }))
   app.use(handler)
   const server = createServer(toNodeListener(app))
@@ -227,6 +227,8 @@ test('Supabase auth with real h3 middleware and mocked official SDK transport', 
     })
     await t.test('unavailable logout clears cookies and safely reports failure', async () => {
       offline = true
+      for (const page of ['/', '/login', '/register', '/dashboard']) assert.equal((await request(page, 'GET', undefined, cookie)).status, 200)
+      assert.equal((await request('/api/farm', 'GET', undefined, cookie)).status, 503)
       const result = await request('/api/auth/logout', 'POST', {}, cookie)
       assert.equal(result.status, 503)
       assert.ok(result.cookies.length >= 2)
@@ -236,7 +238,11 @@ test('Supabase auth with real h3 middleware and mocked official SDK transport', 
     await t.test('explicit missing configuration fails closed without leaking keys', async () => {
       delete process.env.SUPABASE_PUBLISHABLE_KEY
       delete process.env.SUPABASE_ANON_KEY
-      assert.equal((await request('/api/auth/me', 'GET', undefined, cookie)).status, 503)
+      for (const page of ['/', '/login', '/register', '/dashboard']) assert.equal((await request(page, 'GET', undefined, cookie)).status, 200)
+      const missing = await request('/api/auth/me', 'GET', undefined, cookie)
+      assert.equal(missing.status, 503)
+      assert.match(JSON.stringify(missing.body), /SUPABASE_URL.*SUPABASE_PUBLISHABLE_KEY/)
+      assert.equal((await request('/api/farm', 'GET', undefined, cookie)).status, 503)
       const loggedOut = await request('/api/auth/logout', 'POST', {}, cookie)
       assert.equal(loggedOut.status, 503)
       assert.ok(loggedOut.cookies.length >= 2)
