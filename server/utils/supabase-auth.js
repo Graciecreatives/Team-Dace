@@ -26,8 +26,8 @@ const denied = () => createError({ statusCode: 401, statusMessage: 'Invalid emai
 export const authCookieNames = ['farmbuddy_access', 'farmbuddy_refresh']
 const options = () => ({ httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' })
 export function authConfig() {
-  const url = process.env.SUPABASE_URL || ''
-  const key = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || ''
+  const url = (process.env.SUPABASE_URL || '').trim()
+  const key = (process.env.SUPABASE_PUBLISHABLE_KEY || '').trim() || (process.env.SUPABASE_ANON_KEY || '').trim()
   let validUrl = false
   try { const parsed = new URL(url); validUrl = !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash && (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname))) } catch {}
   // Service role credentials must never be used for end-user authentication.
@@ -60,7 +60,36 @@ export function authClient(event) {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     global: { fetch: async (url, init = {}) => {
       const timeout = AbortSignal.timeout(5000)
-      return fetcher(url, { ...init, signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout })
+      const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout
+      const response = await fetcher(url, { ...init, signal, redirect: 'error' })
+      const limit = 1024 * 1024
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel()
+        throw unavailable()
+      }
+      if (Number(response.headers.get('content-length')) > limit) {
+        await response.body?.cancel()
+        throw unavailable()
+      }
+      if (!response.body) return response
+      const reader = response.body.getReader()
+      const chunks = []
+      let size = 0
+      // Read before handing the response to the SDK so JSON error bodies are bounded too.
+      try {
+        while (true) {
+          signal.throwIfAborted()
+          const { done, value } = await reader.read()
+          if (done) break
+          size += value.byteLength
+          if (size > limit) throw unavailable()
+          chunks.push(value)
+        }
+      } catch {
+        await reader.cancel().catch(() => {})
+        throw unavailable()
+      } finally { reader.releaseLock() }
+      return new Response(Buffer.concat(chunks, size), { status: response.status, statusText: response.statusText, headers: response.headers })
     } },
   })
 }

@@ -25,12 +25,23 @@ test('Supabase auth with real h3 middleware and mocked official SDK transport', 
   let confirmation = false
   let bad = false
   let offline = false
+  let transportFailure = ''
   let calls = []
   const jwt = payload => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.c2lnbmF0dXJl`
   const access = jwt({ exp: Math.floor(Date.now() / 1000) + 3600, sub: id })
   const session = () => ({ access_token: access, refresh_token: 'refresh-secret', token_type: 'bearer', expires_in: 3600, user: { id, email } })
   const mockFetch = async (url, init) => {
     assert.ok(init.signal, 'provider request must be timeout bounded')
+    assert.equal(init.redirect, 'error', 'provider credentials must never follow redirects')
+    if (transportFailure === 'redirect') return new Response(null, { status: 302, headers: { location: 'https://evil.test' } })
+    if (transportFailure === 'length') return new Response('PRIVATE', { headers: { 'content-length': '1048577' } })
+    if (transportFailure === 'chunked') return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(700000))
+        controller.enqueue(new Uint8Array(400000))
+        controller.close()
+      },
+    }))
     calls.push({ url: String(url), body: init.body && JSON.parse(init.body) })
     if (offline) return Response.json({ message: 'PRIVATE provider failure sb_publishable_test_secret' }, { status: 503 })
     if (bad || (String(url).endsWith('/user') && init.headers.Authorization === 'Bearer expired')) return Response.json({ message: 'PRIVATE bad credentials', code: 'bad_jwt' }, { status: 400 })
@@ -161,6 +172,34 @@ test('Supabase auth with real h3 middleware and mocked official SDK transport', 
         assert.equal(response.status, 200)
         assert.equal((await response.json()).user.id, userId)
       } finally { await new Promise(resolve => isolated.close(resolve)) }
+    })
+    await t.test('provider transport rejects redirects and oversized declared or chunked bodies', async () => {
+      for (const kind of ['redirect', 'length', 'chunked']) {
+        transportFailure = kind
+        const result = await request('/api/auth/me', 'GET', undefined, cookie)
+        assert.equal(result.status, 503, kind)
+        assert.equal(JSON.stringify(result.body).includes('PRIVATE'), false)
+        assert.equal(JSON.stringify(result.body).includes('sb_publishable'), false)
+      }
+      transportFailure = ''
+    })
+    await t.test('configuration whitespace is trimmed before privileged credential checks', async () => {
+      const previousUrl = process.env.SUPABASE_URL
+      const previousKey = process.env.SUPABASE_PUBLISHABLE_KEY
+      try {
+        process.env.SUPABASE_URL = '  https://auth.example.test  '
+        process.env.SUPABASE_PUBLISHABLE_KEY = '  sb_publishable_test_secret  '
+        assert.deepEqual((await request('/api/auth/config')).body, { mode: 'supabase', configured: true })
+        assert.equal((await request('/api/auth/me', 'GET', undefined, cookie)).status, 200)
+        for (const key of ['  sb_secret_forbidden  ', `  ${jwt({ role: 'service_role' })}  `]) {
+          process.env.SUPABASE_PUBLISHABLE_KEY = key
+          assert.deepEqual((await request('/api/auth/config')).body, { mode: 'supabase', configured: false })
+          assert.equal((await request('/api/auth/me', 'GET', undefined, cookie)).status, 503)
+        }
+      } finally {
+        process.env.SUPABASE_URL = previousUrl
+        process.env.SUPABASE_PUBLISHABLE_KEY = previousKey
+      }
     })
     await t.test('later confirmed login uses sanitized display metadata only', async () => {
       await store(data => { data.users = [] }, true)
