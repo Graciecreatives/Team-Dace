@@ -55,7 +55,7 @@ test('snapshot upgrades optional collections without dropping fields', () => {
   const snapshot = { version: 1, users: [], sessions: [], records: [], reminders: [], future: { keep: true } }
   assert.equal(validateSnapshot(snapshot), snapshot)
   assert.deepEqual(snapshot.notes, [])
-  for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) {
+  for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages', 'farmWorkspaces']) {
     assert.deepEqual(snapshot[key], [])
     for (const invalid of [null, {}, 'invalid', 1]) assert.throws(() => validateSnapshot({ ...emptySnapshot(), [key]: invalid }))
   }
@@ -112,7 +112,7 @@ test('imports require uninitialized state and never overwrite existing data', as
 })
 
 test('invalid marketplace imports and mutations cannot replace valid snapshot data', async () => {
-  for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages']) {
+  for (const key of ['marketplaceFarms', 'marketplaceProducts', 'marketplaceImages', 'farmWorkspaces']) {
     const uninitialized = fakeDatabase(null)
     await assert.rejects(importSnapshot(uninitialized.sql, { ...emptySnapshot(), [key]: {} }), /Invalid FarmBuddy store/)
     assert.equal(uninitialized.state(), null)
