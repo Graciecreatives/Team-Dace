@@ -30,7 +30,7 @@ async function setup({ clipboardFails = false } = {}) {
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
   const injected = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !new RegExp(`(?:const|let|function)\\s+${name}\\b`).test(code)))
   let promise
-  scope.run(() => { promise = new AsyncFunction(...Object.keys(injected), `${code}\nreturn { add, quantities, basket, orderText, imagesEnabled, copyOrder, basketFeedback, slug, selectedProducts, search, sort, availableOnly, failedImages, heroProduct, canShowImage, imageFailed }`)(...Object.values(injected)) })
+  scope.run(() => { promise = new AsyncFunction(...Object.keys(injected), `${code}\nreturn { add, quantities, basket, orderText, imagesEnabled, copyOrder, basketFeedback, slug, selectedProducts, search, sort, availableOnly, failedImages, heroProduct, heroImage, theme, enquiryOpen, canShowImage, imageFailed }`)(...Object.values(injected)) })
   return { state: await promise, data, route, copied: () => copied, stop: () => scope.stop() }
 }
 
@@ -109,5 +109,27 @@ test('hero and card photos respect opt-in and reactively fall back after failure
     assert.equal(h.state.heroProduct.value.id, 'eggs')
     h.state.imageFailed(uploaded)
     assert.equal(h.state.heroProduct.value, undefined)
+  } finally { h.stop() }
+})
+
+test('farm appearance reacts to cover, theme and enquiry choices without loading external covers silently', async () => {
+  const h = await setup()
+  try {
+    const cover = '/api/product-images/22222222-2222-4222-8222-222222222222'
+    h.data.value.farm.coverImageUrl = cover
+    h.data.value.farm.theme = 'teal'
+    assert.equal(h.state.theme.value, 'teal')
+    assert.equal(h.state.heroImage.value.url, cover)
+    h.state.imageFailed(cover)
+    assert.equal(h.state.heroImage.value, null)
+    h.data.value.farm.coverImageUrl = 'https://images.example.com/cover.jpg'
+    assert.equal(h.state.heroImage.value, null)
+    h.state.imagesEnabled.value = true
+    assert.equal(h.state.heroImage.value.url, h.data.value.farm.coverImageUrl)
+    h.data.value.farm.theme = 'unknown'
+    assert.equal(h.state.theme.value, 'green')
+    assert.equal(h.state.enquiryOpen.value, false)
+    h.state.add(h.data.value.products[0])
+    assert.equal(h.state.enquiryOpen.value, true)
   } finally { h.stop() }
 })
