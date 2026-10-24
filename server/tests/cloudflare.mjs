@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { writeFile, access } from 'node:fs/promises'
 import sharp from 'sharp'
 
 const base = process.env.FARMBUDDY_WORKER_TEST_URL || 'http://127.0.0.1:8787'
 const url = new URL(base)
 if (!['127.0.0.1', 'localhost'].includes(url.hostname) && !(process.argv.includes('--remote') && url.protocol === 'https:' && url.hostname.endsWith('.workers.dev'))) throw new Error('Only local Workers or explicitly selected HTTPS workers.dev smoke tests are allowed')
+try {
+  await access('.data/cloudflare-smoke-account.json')
+  throw new Error('A previous smoke account manifest exists. Clean up that exact test account before running another smoke test.')
+} catch (error) { if (error.code !== 'ENOENT') throw error }
 const id = randomUUID()
 const email = `cloudflare-qa-${id}@example.test`
 const password = randomUUID() + randomUUID()
@@ -27,7 +31,7 @@ assert.ok(cookie)
 assert.match(registered.response.headers.get('set-cookie'), /HttpOnly/)
 if (url.protocol === 'https:') assert.match(registered.response.headers.get('set-cookie'), /Secure/)
 const ownerId = registered.value.user.id
-await writeFile('.data/cloudflare-smoke-account.json', JSON.stringify({ ownerId, email, imageId: null }), { mode: 0o600 })
+await writeFile('.data/cloudflare-smoke-account.json', JSON.stringify({ ownerId, email, imageId: null }), { mode: 0o600, flag: 'wx' })
 await call('/api/farm/profile', 'PATCH', { farmName: 'Cloudflare validation', farmType: 'mixed', onboardingCompleted: true })
 const inventory = (await call('/api/tools/inventory', 'POST', { name: 'Validation maize', quantity: 0, unit: 'kg', threshold: 1 })).value.inventory
 const command = (action, fields = {}) => call('/api/management', 'POST', { action, farmId: ownerId, commandId: randomUUID(), ...fields })

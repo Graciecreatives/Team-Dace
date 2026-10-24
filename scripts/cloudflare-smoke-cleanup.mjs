@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { serializeSnapshot } from '../server/utils/database.js'
@@ -43,5 +43,6 @@ if (!args.includes('--apply')) {
     if (!/^[a-f0-9]{32}\/[a-f0-9-]{36}\.jpg$/.test(image.key) || image.backend !== 'cloudflare') throw new Error('Unexpected test object metadata')
     cli('r2', 'object', 'delete', `farmbuddy-products/${image.key}`, location)
   }
+  await unlink('.data/cloudflare-smoke-account.json')
   console.log(`Removed exactly one disposable account and ${ownImages.length} disposable image(s). Other account data preserved. Private pre-cleanup backup retained.`)
 }
