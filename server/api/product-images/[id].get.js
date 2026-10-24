@@ -8,6 +8,7 @@ function viewer(data, event) {
 }
 export default defineEventHandler(async event => {
   setHeader(event, 'Cache-Control', 'no-store')
+  setHeader(event, 'Vary', 'Cookie')
   setHeader(event, 'X-Content-Type-Options', 'nosniff')
   setHeader(event, 'Content-Security-Policy', "default-src 'none'; sandbox")
   const id = getRouterParam(event, 'id')

@@ -1,7 +1,7 @@
 import { defineEventHandler, getHeader, setHeader } from 'h3'
 import { authenticated, mutationGuard, fail } from '../[...].js'
 import { store } from '../../utils/store.js'
-import { MAX_PHOTO_BYTES, encodeProductPhoto, imageRows, imageUrl, newPhoto, writePhoto, removePhoto } from '../../utils/product-images.js'
+import { MAX_PHOTO_BYTES, encodeProductPhoto, imageRows, imageUrl, newPhoto, writePhoto, removePhoto, photoBackend } from '../../utils/product-images.js'
 
 const buckets = new Map()
 let activeUploads = 0
@@ -13,7 +13,7 @@ function throttle(id) {
     buckets.set(id, { count: 0, until: now + 60000 })
   }
   if (++buckets.get(id).count > 10) fail(429, 'Please wait a minute before uploading more photos')
-  if (activeUploads >= 2) fail(429, 'Photos are being processed. Please try again shortly.')
+  if (activeUploads >= (photoBackend() === 'cloudflare' ? 1 : 2)) fail(429, 'Photos are being processed. Please try again shortly.')
 }
 export default defineEventHandler(async event => {
   setHeader(event, 'Cache-Control', 'no-store')

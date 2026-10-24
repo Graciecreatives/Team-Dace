@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp, createRouter, toNodeListener } from 'h3'
 import sharp from 'sharp'
+import { registerHooks } from 'node:module'
 import { encodeProductPhoto, writePhoto, readPhoto, removePhoto, photoBackend, photoKey, MAX_PHOTO_BYTES } from '../server/utils/product-images.js'
 
 function env(values) {
@@ -28,39 +29,78 @@ test('phone photos are actually decoded, oriented, resized and stripped of EXIF 
     await assert.rejects(encodeProductPhoto(bytes, mime), error => error.statusCode === code)
   }
 })
-test('Supabase Storage uses a private bucket, bounded fixed endpoints and no secret-bearing photo URLs', async () => {
-  const restore = env({ FARMBUDDY_DATABASE: 'supabase', SUPABASE_DATABASE_URL: 'postgres://test@localhost/test', SUPABASE_URL: 'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'private-test-service-key', SUPABASE_STORAGE_BUCKET: 'farm-products', FARMBUDDY_IMAGE_STORAGE: undefined })
-  const asset = { backend: 'supabase', key: photoKey('owner', '12345678-1234-1234-1234-123456789abc') }
+test('WASM codec supports PNG and WebP, white transparency, and all EXIF orientations', async () => {
+  for (const format of ['png', 'webp']) {
+    const original = await sharp({ create: { width: 24, height: 12, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })[format]().toBuffer()
+    const result = await encodeProductPhoto(original, `image/${format}`)
+    assert.equal(result.width, 24)
+    assert.equal(result.height, 12)
+    const { data } = await sharp(result.bytes).raw().toBuffer({ resolveWithObject: true })
+    assert.ok(data[0] > 245 && data[1] > 245 && data[2] > 245)
+  }
+  const pattern = Buffer.alloc(24 * 12 * 3)
+  for (let y = 0; y < 12; y++) for (let x = 0; x < 24; x++) {
+    const at = (y * 24 + x) * 3
+    pattern[at] = x < 12 ? 220 : 20
+    pattern[at + 1] = y < 6 ? 220 : 20
+    pattern[at + 2] = x < 12 ? 20 : 220
+  }
+  for (let orientation = 1; orientation <= 8; orientation++) {
+    const original = await sharp(pattern, { raw: { width: 24, height: 12, channels: 3 } }).withMetadata({ orientation }).jpeg().toBuffer()
+    const result = await encodeProductPhoto(original, 'image/jpeg')
+    assert.equal(result.width, orientation >= 5 ? 12 : 24)
+    assert.equal(result.height, orientation >= 5 ? 24 : 12)
+    assert.equal((await sharp(result.bytes).metadata()).exif, undefined)
+    const actual = await sharp(result.bytes).raw().toBuffer()
+    const expected = await sharp(original).autoOrient().raw().toBuffer()
+    for (let channel = 0; channel < 3; channel++) assert.ok(Math.abs(actual[channel] - expected[channel]) < 35, `orientation ${orientation} channel ${channel}`)
+  }
+})
+test('cloud codec rejects oversized dimensions before importing WASM', async () => {
+  const restore = env({ FARMBUDDY_DATABASE: 'cloudflare', FARMBUDDY_IMAGE_STORAGE: 'cloudflare' })
   try {
-    assert.equal(photoBackend(), 'supabase')
+    const oversized = Buffer.alloc(24)
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(oversized)
+    oversized.write('IHDR', 12)
+    oversized.writeUInt32BE(4000, 16)
+    oversized.writeUInt32BE(3000, 20)
+    await assert.rejects(encodeProductPhoto(oversized, 'image/png'), error => error.statusCode === 413 && /4 megapixels/.test(error.message))
+  } finally { restore() }
+})
+test('R2 uses only the private binding with bounded reads and no public object URLs', async () => {
+  const restore = env({ FARMBUDDY_DATABASE: 'cloudflare', FARMBUDDY_IMAGE_STORAGE: undefined })
+  const requests = []
+  let object = { size: 9, httpMetadata: { contentType: 'image/jpeg' }, body: new Blob(['test-jpeg']).stream() }
+  globalThis.__imageTestBucket = {
+    async put(key, bytes, options) { requests.push({ key, bytes, options }); return { key } },
+    async get(key) { requests.push({ key }); return object },
+    async delete(key) { requests.push({ key, deleted: true }) },
+  }
+  const hooks = registerHooks({ resolve(specifier, context, next) {
+    if (specifier === 'cloudflare:workers') return { url: 'data:text/javascript,export const env = { get FARMBUDDY_IMAGES() { return globalThis.__imageTestBucket } }', shortCircuit: true }
+    return next(specifier, context)
+  } })
+  const asset = { backend: 'cloudflare', key: photoKey('owner', '12345678-1234-1234-1234-123456789abc') }
+  try {
+    assert.equal(photoBackend(), 'cloudflare')
     process.env.FARMBUDDY_IMAGE_STORAGE = 'local'
     assert.throws(photoBackend, error => error.statusCode === 503)
     delete process.env.FARMBUDDY_IMAGE_STORAGE
-    const requests = []
-    await writePhoto(asset, Buffer.from('jpeg'), async (url, options) => {
-      requests.push({ url, options })
-      assert.equal(options.redirect, 'error')
-      assert.ok(options.signal)
-      assert.equal(options.headers.apikey, 'private-test-service-key')
-      return url.includes('/bucket/') ? Response.json({ public: false }) : Response.json({ Key: asset.key })
-    })
-    assert.equal(requests.length, 2)
-    assert.match(requests[1].url, /\/storage\/v1\/object\/farm-products\//)
-    assert.equal(requests[1].options.headers['x-upsert'], 'false')
-    assert.ok(!requests[1].url.includes('private-test-service-key'))
-    let writes = 0
-    await assert.rejects(writePhoto(asset, Buffer.from('jpeg'), async () => { writes++; return Response.json({ public: true }) }), error => error.statusCode === 503)
-    assert.equal(writes, 1, 'Public buckets must not receive uploads')
-    const read = await readPhoto(asset, async (url, options) => {
-      assert.match(url, /\/object\/authenticated\/farm-products\//)
-      assert.equal(options.headers.apikey, 'private-test-service-key')
-      return new Response(Buffer.from('test-jpeg'), { headers: { 'Content-Type': 'image/jpeg' } })
-    })
-    assert.equal(read.toString(), 'test-jpeg')
-    await assert.rejects(readPhoto(asset, async () => new Response('private provider internals', { status: 401 })), error => error.statusCode === 503 && !error.message.includes('internals'))
-    await assert.rejects(readPhoto(asset, async () => new Response('x', { headers: { 'Content-Type': 'image/jpeg', 'Content-Length': 9000000 } })), error => error.statusCode === 503)
-    await removePhoto(asset, async (url, options) => { assert.equal(options.method, 'DELETE'); assert.deepEqual(JSON.parse(options.body).prefixes, [asset.key]); return Response.json([]) })
-  } finally { restore() }
+    await writePhoto(asset, Buffer.from('jpeg'))
+    assert.equal(requests[0].key, asset.key)
+    assert.deepEqual(requests[0].options, { httpMetadata: { contentType: 'image/jpeg', cacheControl: 'no-store' }, onlyIf: { etagDoesNotMatch: '*' } })
+    assert.equal((await readPhoto(asset)).toString(), 'test-jpeg')
+    object = { ...object, size: 9000000 }
+    await assert.rejects(readPhoto(asset), error => error.statusCode === 503)
+    object = { size: 1, httpMetadata: { contentType: 'image/jpeg' }, body: new Blob([Buffer.alloc(4 * 1024 * 1024 + 1)]).stream() }
+    await assert.rejects(readPhoto(asset), error => error.statusCode === 503)
+    await removePhoto(asset)
+    assert.deepEqual(requests.at(-1), { key: asset.key, deleted: true })
+    await assert.rejects(readPhoto({ ...asset, backend: 'local' }), error => error.statusCode === 503)
+    await assert.rejects(writePhoto({ ...asset, backend: 'supabase' }, Buffer.from('x')), error => error.statusCode === 503)
+    delete globalThis.__imageTestBucket
+    await assert.rejects(writePhoto(asset, Buffer.from('x')), error => error.statusCode === 503)
+  } finally { hooks.deregister(); delete globalThis.__imageTestBucket; restore() }
 })
 test('real upload HTTP workflow enforces ownership, CSRF, image validation and publication privacy', async () => {
   const directory = await mkdtemp(join(process.env.JCODE_SCRATCH_DIR || tmpdir(), 'product-photos-'))
