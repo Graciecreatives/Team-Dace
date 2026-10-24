@@ -45,6 +45,8 @@ async function call(path, method = 'GET', body, cookie) {
 }
 try {
   await start()
+  const healthWithoutSession = await fetch(base + '/api/health-alerts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ latitude: 7.4, longitude: 3.9 }) })
+  assert.equal(healthWithoutSession.status, 401, 'Built health route must require authentication')
   const registered = await call('/api/auth/register', 'POST', { name: 'Nitro test', email: 'nitro@example.test', password: 'temporary-password' })
   assert.equal(registered.value.user.onboardingCompleted, false)
   const profile = await call('/api/farm/profile', 'PATCH', { farmName: 'Restart Farm', farmType: 'poultry', onboardingCompleted: true, location: 'Kumasi', mainEnterprises: 'Hens', preferredLanguage: 'English' }, registered.cookie)

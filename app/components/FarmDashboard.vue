@@ -1,4 +1,5 @@
 <script setup>
+import FarmWatch from './FarmWatch.vue'
 import FarmBookkeeping from './FarmBookkeeping.vue'
 import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, LogOut, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, LoaderCircle, Trash2, Bot, CloudSun, Users, Package, NotebookPen } from 'lucide-vue-next'
 
@@ -20,6 +21,8 @@ const { data: farm, refresh: refreshFarm, error: loadError } = await useFetch('/
 const records = computed(() => farm.value?.records || [])
 const reminders = computed(() => farm.value?.reminders || [])
 const section = ref('overview')
+const watchStarted = ref(false)
+const unreadWatch = ref(0)
 const mobileMenu = ref(false)
 const dialog = ref(null)
 const saving = ref(false)
@@ -46,11 +49,10 @@ const nav = [
   { id: 'inventory', label: 'Inventory', icon: Package },
   { id: 'notes', label: 'Offline notes', icon: NotebookPen },
   { id: 'assistant', label: 'FarmBuddyAI', icon: Bot },
-  { id: 'weather', label: 'Weather planning', icon: CloudSun },
+  { id: 'weather', label: 'Farm Watch', icon: CloudSun },
   { id: 'community', label: 'Nearby farmers', icon: Users },
   { id: 'profile', label: 'My farm', icon: UserRound },
 ]
-const titles = { overview: 'A good day to grow.', records: 'Every detail counts.', reminders: 'Stay one step ahead.', profile: 'Your farm, at a glance.', enterprises: 'Know what is growing.', inventory: 'Every supply accounted for.', notes: 'A note today. A clearer tomorrow.', bookkeeping: 'Your farm finances, clearly.', assistant: 'Meet your farming companion.', weather: 'Plan around the weather.', community: 'Better farming, together.' }
 const income = computed(() => records.value.filter(r => r.category === 'income').reduce((sum, r) => sum + Number(r.amount || 0), 0))
 const expenses = computed(() => records.value.filter(r => r.category === 'expense').reduce((sum, r) => sum + Number(r.amount || 0), 0))
 const pending = computed(() => reminders.value.filter(r => !r.completed).sort((a, b) => a.date.localeCompare(b.date)))
@@ -58,7 +60,7 @@ const recent = computed(() => [...records.value].sort((a, b) => b.createdAt.loca
 const money = value => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 2 }).format(value)
 const displayDate = value => new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 const initials = computed(() => (user.value.name || 'Farmer').split(' ').filter(Boolean).slice(0, 2).map(n => n[0]).join('').toUpperCase())
-function chooseSection(id) { section.value = id; mobileMenu.value = false; feedback.value = ''; error.value = '' }
+function chooseSection(id) { if (id === 'weather') watchStarted.value = true; section.value = id; mobileMenu.value = false; feedback.value = ''; error.value = '' }
 function openDialog(type) { dialogTrigger = document.activeElement; dialog.value = type; error.value = ''; feedback.value = ''; nextTick(() => document.getElementById(type === 'record' ? 'record-title' : 'reminder-title')?.focus()) }
 function addBookkeepingEntry(category) { Object.assign(recordForm, { title: '', category: category === 'expense' ? 'expense' : 'income', amount: '', note: '' }); openDialog('record') }
 function closeDialog() { if (!saving.value) { dialog.value = null; error.value = '' } }
@@ -116,18 +118,15 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
     <button v-if="mobileMenu" type="button" aria-label="Close sidebar" class="fixed inset-0 z-30 bg-[#092D20]/35 lg:hidden" @click="mobileMenu = false" />
     <div class="lg:pl-64">
       <header class="flex min-h-20 items-center justify-between gap-4 border-b border-[#DFE6D9] bg-white/70 px-5 py-4 sm:px-8">
-        <div class="flex items-center gap-3"><button type="button" aria-label="Open dashboard navigation" :aria-expanded="mobileMenu" class="rounded-lg p-2 hover:bg-[#EDF1E6] lg:hidden" @click="mobileMenu = !mobileMenu"><Menu :size="22" /></button><p class="text-sm font-semibold text-[#71836B]">My workspace <span class="mx-2 text-[#C2CCBA]">/</span><span class="text-[#193D2B]">{{ nav.find(n => n.id === section)?.label }}</span></p></div>
+        <div class="flex items-center gap-3"><button type="button" aria-label="Open dashboard navigation" :aria-expanded="mobileMenu" class="rounded-lg p-2 hover:bg-[#EDF1E6] lg:hidden" @click="mobileMenu = !mobileMenu"><Menu :size="22" /></button><button type="button" class="inline-flex items-center gap-2 rounded-xl border border-[#DCE5D8] px-3 py-2 text-xs font-semibold text-[#066136]" aria-label="Open Farm Watch weather and health notifications" @click="chooseSection('weather')"><Bell :size="17" />Farm Watch<span v-if="unreadWatch" class="rounded-full bg-[#F9C23C] px-2 py-0.5 text-[10px]" :aria-label="`${unreadWatch} unread notifications`">{{ unreadWatch }}</span></button></div>
         <button type="button" class="flex items-center gap-3 text-left" aria-label="View your farm profile" @click="chooseSection('profile')"><span class="flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-[#F9C23C] text-xs font-extrabold shadow-sm">{{ initials }}</span><span class="hidden sm:block"><span class="block text-xs font-bold">{{ user.name }}</span><span class="mt-0.5 block text-[10px] text-[#7D8C76]">FarmBuddy farmer</span></span></button>
       </header>
       <main class="mx-auto max-w-[1440px]" :class="section === 'assistant' ? 'px-2 py-3 sm:px-5 sm:py-5' : 'px-5 py-7 sm:px-8 sm:py-9'">
-        <div v-if="section !== 'assistant'" class="mb-7 flex flex-col justify-between gap-5 xl:flex-row xl:items-end"><div><p class="text-xs font-semibold text-[#77906B]">Welcome back, {{ user.name?.split(' ')[0] || 'farmer' }} <span aria-hidden="true">☀</span></p><h1 class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{{ section === 'overview' ? tailored.heading : titles[section] }}</h1><p class="mt-3 text-sm leading-6 text-[#7A8972]">{{ user.farmName || 'Your farm' }} · {{ farmTypeLabel }}. Records and reminders for your everyday progress.</p></div><div class="flex flex-wrap gap-3"><button type="button" class="dash-button-secondary" @click="openDialog('reminder')"><Bell :size="16" />Set reminder</button><button type="button" class="dash-button" @click="openDialog('record')"><Plus :size="18" />Add farm record</button></div></div>
         <p v-if="feedback" role="status" class="mb-5 rounded-xl border border-[#CFE1C4] bg-[#E8F2E0] px-4 py-3 text-sm text-[#32673B]">{{ feedback }}</p>
         <div v-if="(error && !dialog) || loadError" role="alert" class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ error || 'Could not load your farm data.' }}<button v-if="loadError" type="button" class="ml-2 font-bold underline" @click="refreshFarm()">Retry</button></div>
 
+        <div v-if="['overview', 'records', 'reminders'].includes(section)" class="mb-5 flex flex-wrap gap-3"><button type="button" class="dash-button" @click="openDialog('record')"><Plus :size="17" />Add farm record</button><button type="button" class="dash-button-secondary" @click="openDialog('reminder')"><Bell :size="16" />Set reminder</button></div>
         <template v-if="section === 'overview'">
-          <section class="relative mb-6 overflow-hidden rounded-[1.5rem] bg-[#064B32] px-6 py-7 text-white sm:px-8 sm:py-8">
-            <div class="relative z-10 max-w-lg"><span class="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-[#F9C23C]"><Sprout :size="12" />Your growing journey</span><h2 class="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">{{ tailored.hero }}</h2><p class="mt-3 max-w-sm text-sm leading-6 text-[#BDDAC6]">{{ tailored.copy }}</p><button type="button" class="mt-5 inline-flex items-center gap-2 text-xs font-bold text-[#F9C23C]" @click="openDialog('record')">Make your next entry <ArrowUpRight :size="15" /></button></div><div class="pointer-events-none absolute -right-4 bottom-0 hidden h-64 w-72 items-center justify-center sm:flex" aria-hidden="true"><span class="absolute h-52 w-52 rounded-full border border-white/10 shadow-[0_0_0_30px_rgba(255,255,255,0.025)]" /><Sprout :size="140" :stroke-width="1" class="rotate-12 text-[#7FAF68]" /></div>
-          </section>
           <section aria-label="Farm summary" class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div v-for="stat in [{label:'Total income',value:money(income),note:'All recorded income',icon:TrendingUp},{label:'Total expenses',value:money(expenses),note:'All recorded expenses',icon:TrendingDown},{label:'Net balance',value:money(income-expenses),note:'Income minus expenses',icon:Wallet},{label:'Upcoming tasks',value:pending.length,note:'Reminders still to complete',icon:CalendarDays}]" :key="stat.label" class="dash-panel p-5"><div class="flex items-center justify-between"><p class="text-xs font-semibold text-[#74846C]">{{ stat.label }}</p><span class="rounded-lg bg-[#EDF2E5] p-2 text-[#4D7847]"><component :is="stat.icon" :size="17" /></span></div><p class="mt-3 text-2xl font-bold tracking-tight">{{ stat.value }}</p><p class="mt-2 text-[10px] text-[#91A085]">{{ stat.note }}</p></div>
           </section>
@@ -146,9 +145,10 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
         <FarmManagement v-if="['enterprises', 'inventory'].includes(section)" :key="section" :section="section" :user="user" />
         <FarmNotes v-if="section === 'notes'" :user="user" mode="notes" />
         <FarmAssistant v-if="section === 'assistant'" :user="user" @records-changed="refreshFarm" />
-        <FarmLocationTools v-if="section === 'weather' || section === 'community'" :key="section" :user="user" :mode="section" />
+        <FarmWatch v-if="watchStarted" v-show="section === 'weather'" :user="user" @unread-change="unreadWatch = $event" />
+        <FarmLocationTools v-if="section === 'community'" :user="user" mode="community" />
         <section v-if="section === 'profile'" class="dash-panel max-w-3xl p-6 sm:p-8"><div class="flex items-center gap-4"><span class="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#E8EFD9] text-[#4C7C44]"><Sprout :size="34" /></span><div><h2 class="text-xl font-bold">{{ user.farmName || 'My farm' }}</h2><p class="mt-1 text-sm capitalize text-[#8B9981]">{{ farmTypeLabel }}</p></div></div><dl class="mt-8 grid gap-6 border-t border-[#E9EEDF] pt-6 sm:grid-cols-2"><div v-for="field in [{label:'Farmer',value:user.name},{label:'Email',value:user.email},{label:'Farm name',value:user.farmName || 'Not provided'},{label:'Farm type',value:farmTypeLabel},{label:'Location',value:user.location || 'Not provided'},{label:'Main enterprises',value:Array.isArray(user.mainEnterprises) ? user.mainEnterprises.join(', ') || 'Not provided' : user.mainEnterprises || 'Not provided'},{label:'Preferred language',value:user.preferredLanguage || 'Not provided'}]" :key="field.label"><dt class="text-xs text-[#8B9981]">{{ field.label }}</dt><dd class="mt-2 break-words text-sm font-semibold">{{ field.value }}</dd></div></dl><div class="mt-8 flex items-start gap-3 rounded-2xl bg-[#F1F5E9] p-4 text-xs leading-6 text-[#728668]"><ShieldCheck :size="20" class="mt-0.5 shrink-0" /><p>Your records and reminders belong to your account. Your farm passport and profile verification are not yet available.</p></div></section>
-        <section v-if="section === 'overview'" class="mt-6 rounded-2xl border border-[#D7E1CC] bg-[#F0F3E8] p-5"><h2 class="text-sm font-bold">Your farm toolkit is growing.</h2><p class="mt-2 text-xs leading-6 text-[#738266]">Keep crop and animal registers, track supplies, save offline notes, and manage income and expenses in Bookkeeping. Use FarmBuddyAI to ask questions or review voice-to-record entries. Check weather or find opted-in farmers nearby. AI and YarnGPT features show their connection status before use.</p><div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><button v-for="tool in nav.filter(item => ['bookkeeping', 'assistant', 'weather', 'community'].includes(item.id))" :key="tool.id" class="flex items-center gap-2 rounded-xl border border-[#d9e3ce] bg-white px-4 py-3 text-left text-xs font-bold text-[#066136]" @click="chooseSection(tool.id)"><component :is="tool.icon" :size="18" />{{ tool.label }}<ArrowUpRight :size="14" class="ml-auto" /></button></div></section>
+        <section v-if="section === 'overview'" class="mt-6 rounded-2xl border border-[#D7E1CC] bg-[#F0F3E8] p-5"><h2 class="text-sm font-bold">Your farm toolkit is growing.</h2><p class="mt-2 text-xs leading-6 text-[#738266]">Keep crop and animal registers, track supplies, save offline notes, and manage income and expenses in Bookkeeping. Use FarmBuddyAI to ask questions or review voice-to-record entries. Use Farm Watch for location-based weather advice and sourced plant and animal health bulletins, or find opted-in farmers nearby. AI and YarnGPT features show their connection status before use.</p><div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><button v-for="tool in nav.filter(item => ['bookkeeping', 'assistant', 'weather', 'community'].includes(item.id))" :key="tool.id" class="flex items-center gap-2 rounded-xl border border-[#d9e3ce] bg-white px-4 py-3 text-left text-xs font-bold text-[#066136]" @click="chooseSection(tool.id)"><component :is="tool.icon" :size="18" />{{ tool.label }}<ArrowUpRight :size="14" class="ml-auto" /></button></div></section>
         <p v-if="section !== 'assistant'" class="mt-8 text-center text-[10px] text-[#9AA68E]">FarmBuddy · A little support for every day on the farm.</p>
       </main>
     </div>

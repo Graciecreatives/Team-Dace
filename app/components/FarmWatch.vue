@@ -4,6 +4,7 @@ import { CloudSun, MapPin, Bell, Sprout, ShieldCheck } from 'lucide-vue-next'
 import { weatherAdvice } from '../utils/farm-watch.js'
 
 const props = defineProps({ user: { type: Object, required: true } })
+const emit = defineEmits(['unread-change'])
 const account = computed(() => String(props.user?.id || props.user?._id || props.user?.email || ''))
 const enterprises = computed(() => Array.isArray(props.user.mainEnterprises) ? props.user.mainEnterprises.join(', ') : props.user.mainEnterprises || 'your crops and livestock')
 const latitude = ref(''), longitude = ref(''), country = ref(''), location = ref(null)
@@ -21,6 +22,7 @@ const notifications = computed(() => [
   ...(health.value?.items || []).map(item => ({ ...item, key: `health:${item.id}` }))
 ].filter(item => !dismissed.value.includes(item.key)))
 const unread = computed(() => notifications.value.filter(item => !read.value.includes(item.key)).length)
+watch(unread, value => emit('unread-change', value), { immediate: true })
 const busy = computed(() => weatherBusy.value || healthBusy.value)
 function safeUrl(value) {
   try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : null } catch { return null }
@@ -166,7 +168,7 @@ onBeforeUnmount(() => { active = false; reset(); clearInterval(timer); document.
       <p v-else-if="!forecast" class="empty">Choose an area to see a real forecast and practical planning notes. No sample weather is shown.</p>
       <template v-if="forecast">
         <p class="fine">Checked {{ time(forecast.checkedAt) }} · {{ forecast.timezone }} · Area {{ forecast.latitude }}, {{ forecast.longitude }}</p>
-        <div class="forecast"><article v-for="day in forecast.days" :key="day.date" class="day"><h4>{{ dayLabel(day.date) }}</h4><strong>{{ day.max ?? '—' }}°<span>C</span></strong><p>Low {{ day.min ?? '—' }}°C</p><p>{{ day.rain ?? '—' }} mm rain</p><span v-for="indicator in day.indicators || []" :key="indicator" class="indicator">{{ indicator }}</span></article></div>
+        <div class="forecast"><article v-for="day in forecast.days" :key="day.date" class="day"><h4>{{ dayLabel(day.date) }}</h4><strong>{{ day.max ?? 'Unavailable' }}°<span>C</span></strong><p>Low {{ day.min ?? 'Unavailable' }}°C</p><p>{{ day.rain ?? 'Unavailable' }} mm rain</p><span v-for="indicator in day.indicators || []" :key="indicator" class="indicator">{{ indicator }}</span></article></div>
         <div class="advice"><article v-for="item in advice" :key="item.id" :class="['advice-card', { watch: item.level === 'watch' }]"><span class="badge">{{ item.level === 'watch' ? 'Weather watch' : 'Planning note' }} · {{ item.date }}</span><h4>{{ item.title }}</h4><p>{{ item.body }}</p></article></div>
         <p class="fine">Provider: {{ forecast.source || 'Open-Meteo' }}. Weather data: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>). Planning notes by FarmBuddy. Forecasts are uncertain. Weather conducive to disease is not a confirmed outbreak.</p>
       </template>
