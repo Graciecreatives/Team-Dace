@@ -1,13 +1,45 @@
 <script setup>
-import { CloudSun, MapPin, Users, LoaderCircle } from 'lucide-vue-next'
+import { MapPin } from 'lucide-vue-next'
 const props = defineProps({ user: { type: Object, required: true }, mode: { type: String, default: 'weather' } })
 const latitude = ref(''), longitude = ref(''), radius = ref(100)
 const forecast = ref(null), farmers = ref([]), searched = ref(false), community = ref({ profile: {}, requests: [] })
 const error = ref(''), message = ref(''), busy = ref(false), locating = ref(false), mapPoint = ref(null)
-const selectedId = ref('')
+const loading = ref(false), loaded = ref(false), selectedId = ref('')
 const selectedFarmer = computed(() => farmers.value.find(farmer => farmer.id === selectedId.value))
-const sharing = reactive({ displayName: props.user.farmName || '', bio: '', contact: '', consent: false })
+const sharing = reactive({ displayName: props.user?.farmName || '', bio: '', contact: '', consent: false })
 const issue = cause => cause?.data?.statusMessage || cause?.data?.message || cause?.message || 'Unable to complete this action. Please try again.'
+let generation = 0, controller, disposed = false, mounted = false
+const available = () => !disposed && Boolean(props.user?.id) && !busy.value && !locating.value
+function clearResults() { farmers.value = []; searched.value = false; selectedId.value = ''; mapPoint.value = null }
+function reset() {
+  generation++; controller?.abort(); controller = undefined
+  busy.value = false; locating.value = false; loading.value = false; loaded.value = false
+  latitude.value = ''; longitude.value = ''; radius.value = 100; forecast.value = null
+  error.value = ''; message.value = ''; community.value = { profile: {}, requests: [] }
+  Object.assign(sharing, { displayName: props.user?.farmName || '', bio: '', contact: '', consent: false })
+  clearResults()
+}
+function applyCommunity(result, hydrate = false) {
+  community.value = result
+  if (hydrate) {
+    const profile = result.profile
+    Object.assign(sharing, { displayName: profile.displayName || props.user?.farmName || '', bio: profile.bio || '', contact: profile.contact || '', consent: false })
+    latitude.value = profile.latitude == null ? '' : String(profile.latitude)
+    longitude.value = profile.longitude == null ? '' : String(profile.longitude)
+  }
+}
+async function run(path, options, apply) {
+  if (!available()) return
+  const token = ++generation, account = props.user.id, mode = props.mode
+  const current = () => !disposed && generation === token && props.user?.id === account && props.mode === mode
+  controller = new AbortController()
+  busy.value = true; error.value = ''; message.value = ''
+  try {
+    const result = await $fetch(path, { ...options, signal: controller.signal, timeout: 15000, retry: 0 })
+    if (current()) apply(result)
+  } catch (cause) { if (current()) error.value = issue(cause) }
+  finally { if (current()) { busy.value = false; loading.value = false; controller = undefined } }
+}
 function point() {
   if (latitude.value === '' || longitude.value === '') throw new Error('Enter your approximate coordinates or choose Use my location.')
   const lat = Number(latitude.value), lon = Number(longitude.value)
@@ -15,62 +47,78 @@ function point() {
   return { latitude: Math.round(lat * 10) / 10, longitude: Math.round(lon * 10) / 10 }
 }
 function locate() {
+  if (!available()) return
   error.value = ''
   if (!navigator.geolocation) { error.value = 'Location is unavailable. Enter coordinates manually instead.'; return }
+  const token = ++generation, account = props.user.id, mode = props.mode
+  const current = () => !disposed && locating.value && token === generation && props.user?.id === account && props.mode === mode
   locating.value = true
-  navigator.geolocation.getCurrentPosition(position => {
+  const failed = () => { if (current()) { error.value = 'Location was not shared. You can still enter approximate coordinates manually.'; locating.value = false } }
+  try { navigator.geolocation.getCurrentPosition(position => {
+    if (!current()) return
+    if (!Number.isFinite(position?.coords?.latitude) || !Number.isFinite(position?.coords?.longitude)) { failed(); return }
     latitude.value = String(Math.round(position.coords.latitude * 10) / 10)
     longitude.value = String(Math.round(position.coords.longitude * 10) / 10)
     locating.value = false
-  }, () => { error.value = 'Location was not shared. You can still enter approximate coordinates manually.'; locating.value = false }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 })
+  }, failed, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }) } catch { failed() }
 }
 async function loadCommunity() {
-  community.value = await $fetch('/api/community')
-  const profile = community.value.profile
-  Object.assign(sharing, { displayName: profile.displayName || props.user.farmName || '', bio: profile.bio || '', contact: profile.contact || '', consent: false })
-  if (profile.latitude != null) latitude.value = String(profile.latitude)
-  if (profile.longitude != null) longitude.value = String(profile.longitude)
+  if (!available() || props.mode !== 'community') return
+  loading.value = true
+  await run('/api/community', {}, result => { applyCommunity(result, true); loaded.value = true })
 }
-onMounted(async () => { if (props.mode === 'community') { try { await loadCommunity() } catch (cause) { error.value = issue(cause) } } })
+watch(() => [props.user?.id, props.mode], () => { reset(); if (mounted && props.mode === 'community' && props.user?.id) loadCommunity() }, { immediate: true, flush: 'sync' })
+onMounted(() => { mounted = true; if (props.mode === 'community') loadCommunity() })
+onUnmounted(() => { disposed = true; reset() })
 async function weather() {
-  error.value = ''; message.value = ''; busy.value = true; forecast.value = null
-  try { forecast.value = await $fetch('/api/weather', { method: 'POST', body: point() }) } catch (cause) { error.value = issue(cause) } finally { busy.value = false }
+  if (!available() || props.mode !== 'weather') return
+  forecast.value = null
+  try { await run('/api/weather', { method: 'POST', body: point() }, result => { forecast.value = result }) } catch (cause) { error.value = issue(cause) }
 }
 async function search() {
-  error.value = ''; message.value = ''; busy.value = true; selectedId.value = ''; const mapWasOpen = Boolean(mapPoint.value); farmers.value = []
-  try { const result = await $fetch('/api/community', { method: 'POST', body: { action: 'search', ...point(), radiusKm: Number(radius.value) } }); farmers.value = result.farmers; searched.value = true; if (mapWasOpen) mapPoint.value = { latitude: result.latitude, longitude: result.longitude } } catch (cause) { error.value = issue(cause) } finally { busy.value = false }
+  if (!available() || props.mode !== 'community' || !loaded.value) return
+  const mapWasOpen = Boolean(mapPoint.value)
+  clearResults()
+  try { await run('/api/community', { method: 'POST', body: { action: 'search', ...point(), radiusKm: Number(radius.value) } }, result => {
+    farmers.value = result.farmers; searched.value = true
+    if (mapWasOpen) mapPoint.value = { latitude: result.latitude, longitude: result.longitude }
+  }) } catch (cause) { error.value = issue(cause) }
 }
 async function communityAction(action, extra = {}) {
+  if (!available() || props.mode !== 'community' || !loaded.value) return
   if (action === 'hide' && !window.confirm('Hide your farmer profile and remove its shared location and contact details?')) return
   if (action === 'block' && !window.confirm('Block this farmer? You will no longer appear to each other.')) return
-  error.value = ''; message.value = ''; busy.value = true
   try {
+    if (action === 'publish' && !sharing.consent) throw new Error('Location sharing consent is required.')
     const body = action === 'publish' ? { action, ...point(), ...sharing } : { action, ...extra }
-    community.value = await $fetch('/api/community', { method: 'POST', body })
-    message.value = ({ publish: 'Your approximate farmer profile is now discoverable.', hide: 'Your profile is hidden and its shared location and contact details were removed.', request: 'Connection request saved. Your contact is shared only after acceptance.', respond: 'Connection updated.', block: 'Farmer blocked.' })[action]
-    if (['hide', 'block'].includes(action)) { farmers.value = []; searched.value = false; mapPoint.value = null }
-  } catch (cause) { error.value = issue(cause) } finally { busy.value = false }
+    await run('/api/community', { method: 'POST', body }, result => {
+      applyCommunity(result, ['publish', 'hide', 'block'].includes(action))
+      message.value = ({ publish: 'Your approximate farmer profile is now discoverable.', hide: 'Your profile is hidden and its shared location and contact details were removed.', request: 'Connection request saved. Your contact is shared only after acceptance.', respond: 'Connection updated.', block: 'Farmer blocked.' })[action]
+      if (['hide', 'block'].includes(action)) clearResults()
+    })
+  } catch (cause) { error.value = issue(cause) }
 }
 function showFarmer(farmer) {
+  if (!available() || !farmers.value.some(item => item.id === farmer.id)) return
   selectedId.value = farmer.id
-  if (!mapPoint.value) {
-    try { mapPoint.value = point() } catch { mapPoint.value = { latitude: farmer.latitude, longitude: farmer.longitude } }
-  }
-  nextTick(() => document.getElementById('nearby-farmer-map')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }))
+  // Selecting a farmer is not consent to load external map tiles.
+  const token = generation
+  nextTick(() => { if (!disposed && token === generation) document.getElementById('nearby-farmer-map')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' }) })
 }
-function loadMap() { try { error.value = ''; mapPoint.value = point() } catch (cause) { error.value = issue(cause) } }
+function loadMap() { if (!available()) return; try { error.value = ''; mapPoint.value = point() } catch (cause) { error.value = issue(cause) } }
 
 </script>
 
 <template>
   <div class="location-tools space-y-6">
     <section class="rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7">
-      <div class="flex items-center gap-3"><component :is="mode === 'weather' ? CloudSun : Users" :size="26" class="text-[#066136]" /><h2 class="text-xl font-bold">{{ mode === 'weather' ? 'Weather-aware farm planning' : 'Find your farming community' }}</h2></div>
-      <p class="mt-3 text-sm leading-7 text-[#64745c]">{{ mode === 'weather' ? 'Check a real five-day forecast and in-app heat and rain planning indicators. These are not official emergency warnings or background notifications.' : 'Discover real FarmBuddy farmers who have chosen to share an approximate area. No sample profiles or exact farm pins.' }}</p>
+      <FbPageHeader :title="mode === 'weather' ? 'Weather-aware farm planning' : 'Find your farming community'" :description="mode === 'weather' ? 'Check a real five-day forecast and in-app heat and rain planning indicators. These are not official emergency warnings or background notifications.' : 'Discover real FarmBuddy farmers who have chosen to share an approximate area. No sample profiles or exact farm pins.'">
+        <template #actions><FbBadge>{{ mode === 'weather' ? 'Approximate area' : 'Opt-in community' }}</FbBadge></template>
+      </FbPageHeader>
       <p class="mt-2 text-xs leading-6 text-[#7b8972]">Coordinates are rounded to 0.1° (roughly a local area, not an exact address). Use my location requests device permission only when clicked. Weather checks share the rounded area with OpenWeather, but do not publish it to farmers.</p>
       <form class="mt-5" @submit.prevent="mode === 'weather' ? weather() : search()">
         <div class="grid gap-4 sm:grid-cols-3"><label class="field">Latitude<input v-model="latitude" type="number" step="0.1" min="-90" max="90" required placeholder="e.g. 7.4" /></label><label class="field">Longitude<input v-model="longitude" type="number" step="0.1" min="-180" max="180" required placeholder="e.g. 3.9" /></label><label v-if="mode === 'community'" class="field">Search radius<select v-model="radius"><option :value="25">25 km</option><option :value="50">50 km</option><option :value="100">100 km</option><option :value="200">200 km</option></select></label></div>
-        <div class="mt-4 flex flex-wrap gap-3"><button type="button" class="secondary" :disabled="locating || busy" @click="locate"><MapPin :size="15" />{{ locating ? 'Locating…' : 'Use my location' }}</button><button class="primary" :disabled="busy || locating"><LoaderCircle v-if="busy" :size="16" class="animate-spin" />{{ mode === 'weather' ? 'Check weather' : 'Find nearby farmers' }}</button></div>
+        <div class="mt-4 flex flex-wrap gap-3"><FbButton type="button" variant="secondary" :disabled="locating || busy || !user?.id" @click="locate"><MapPin :size="15" />{{ locating ? 'Locating…' : 'Use my location' }}</FbButton><FbButton type="submit" :busy="busy" :disabled="busy || locating || !user?.id || (mode === 'community' && !loaded)">{{ mode === 'weather' ? 'Check weather' : 'Find nearby farmers' }}</FbButton></div>
       </form>
       <p v-if="error" role="alert" class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{{ error }}</p><p v-if="message" role="status" class="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-900">{{ message }}</p>
     </section>
@@ -82,13 +130,16 @@ function loadMap() { try { error.value = ''; mapPoint.value = point() } catch (c
       <p class="mt-2 text-xs text-[#718068]">Weather data by <a href="https://openweathermap.org/" target="_blank" rel="noopener noreferrer" class="underline">OpenWeather</a>. FarmBuddy derives the planning indicators.</p>
     </section>
 
-    <template v-if="mode === 'community'">
+    <p v-if="!user?.id" role="status">Sign in to use location tools.</p>
+    <p v-if="mode === 'community' && loading" role="status">Loading your farmer profile and connections…</p>
+    <FbButton v-if="mode === 'community' && user?.id && !loaded && !loading" type="button" @click="loadCommunity">Retry loading community</FbButton>
+    <template v-if="mode === 'community' && loaded">
       <section class="rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-bold">Your public farmer profile</h3><span class="rounded-full bg-[#edf3e5] px-3 py-1 text-xs">{{ community.profile.visible ? 'Discoverable' : 'Hidden by default' }}</span></div><p class="mt-3 text-xs leading-6 text-[#718068]">Publishing shares your chosen farm name, farming type, introduction, and rounded coordinates with signed-in farmers. Optional contact details are shared only with accepted connections. Do not enter an exact address.</p>
-        <form class="mt-4 grid gap-4" @submit.prevent="communityAction('publish')"><label class="field">Public farm name<input v-model="sharing.displayName" maxlength="100" required /></label><label class="field">Introduction<textarea v-model="sharing.bio" maxlength="400" rows="2" placeholder="What do you grow or raise?" /></label><label class="field">Contact for accepted connections only (optional)<input v-model="sharing.contact" maxlength="150" placeholder="A contact detail you choose to share" /></label><label class="flex items-start gap-3 text-xs leading-6"><input v-model="sharing.consent" type="checkbox" required class="mt-1.5" />I agree to share this profile and the rounded coordinates entered above with other signed-in farmers.</label><div class="flex flex-wrap gap-3"><button class="primary" :disabled="busy">{{ community.profile.visible ? 'Update shared profile' : 'Publish my profile' }}</button><button v-if="community.profile.visible" type="button" class="secondary" :disabled="busy" @click="communityAction('hide')">Hide & remove shared details</button></div></form>
+        <form class="mt-4 grid gap-4" @submit.prevent="communityAction('publish')"><label class="field">Public farm name<input v-model="sharing.displayName" maxlength="100" required /></label><label class="field">Introduction<textarea v-model="sharing.bio" maxlength="400" rows="2" placeholder="What do you grow or raise?" /></label><label class="field">Contact for accepted connections only (optional)<input v-model="sharing.contact" maxlength="150" placeholder="A contact detail you choose to share" /></label><label class="flex items-start gap-3 text-xs leading-6"><input v-model="sharing.consent" type="checkbox" required class="mt-1.5" />I agree to share this profile and the rounded coordinates entered above with other signed-in farmers.</label><div class="flex flex-wrap gap-3"><button class="primary" :disabled="busy || locating">{{ community.profile.visible ? 'Update shared profile' : 'Publish my profile' }}</button><button v-if="community.profile.visible" type="button" class="secondary" :disabled="busy || locating" @click="communityAction('hide')">Hide & remove shared details</button></div></form>
       </section>
-      <section v-if="searched" class="rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><h3 class="font-bold">Nearby farmers · {{ farmers.length }}</h3><p v-if="!farmers.length" class="mt-4 text-sm leading-7 text-[#718068]">No opted-in farmers were found in this area. Try a wider radius or invite your farming community to join. We never add made-up profiles.</p><ul v-else class="mt-4 space-y-4"><li v-for="farmer in farmers" :key="farmer.id" class="rounded-xl border border-[#e3eadc] p-4"><h4 class="font-bold">{{ farmer.displayName }}</h4><p class="mt-1 text-xs capitalize text-[#718068]">{{ farmer.farmType }} · Approximately {{ farmer.distanceKm }} km away</p><p class="mt-2 break-words text-sm text-[#718068]">{{ farmer.bio }}</p><div class="mt-3 flex flex-wrap gap-2"><button class="secondary" @click="showFarmer(farmer)">View farmer on map</button><button class="primary" :disabled="busy" @click="communityAction('request', { targetId: farmer.id })">Request connection</button><button class="secondary" :disabled="busy" @click="communityAction('block', { targetId: farmer.id })">Block farmer</button></div></li></ul></section>
-      <section id="nearby-farmer-map" class="scroll-mt-5 rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-bold">Your farming neighbourhood</h3><span class="text-xs text-[#718068]">{{ farmers.length }} opted-in farmers in this search</span></div><p class="mt-2 text-xs leading-6 text-[#718068]">Load the interactive map to share map-view information and your IP with the tile provider (OpenStreetMap by default). Green markers show rounded areas, never exact addresses. Use the list if you prefer not to load external maps.</p><button class="secondary mt-4" @click="loadMap">{{ mapPoint ? 'Recenter on entered area' : 'Load interactive farmer map' }}</button><div v-if="mapPoint" class="mt-4"><FarmerMap :center="mapPoint" :farmers="farmers" :selected-id="selectedId" @select="selectedId = $event.id" /></div><div v-if="selectedFarmer" aria-live="polite" class="mt-4 rounded-xl border border-[#cee0bc] bg-[#f2f7e9] p-4"><h4 class="font-bold text-[#174b31]">{{ selectedFarmer.displayName }}</h4><p class="mt-1 text-xs capitalize text-[#718068]">{{ selectedFarmer.farmType }} · Approximately {{ selectedFarmer.distanceKm }} km away</p><p class="mt-2 break-words text-sm text-[#64745c]">{{ selectedFarmer.bio }}</p><div class="mt-4 flex flex-wrap gap-2"><button class="primary" :disabled="busy" @click="communityAction('request', { targetId: selectedFarmer.id })">Request connection</button><button class="secondary" :disabled="busy" @click="communityAction('block', { targetId: selectedFarmer.id })">Block farmer</button></div><p class="mt-3 text-xs leading-5 text-[#718068]">Publish your own profile to connect. Contact details are shared only after the request is accepted.</p></div></section>
-      <section class="rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><h3 class="font-bold">Your connections</h3><p v-if="!community.requests.length" class="mt-3 text-sm text-[#718068]">No requests yet. Connect with an opted-in farmer nearby.</p><ul class="mt-3 space-y-3"><li v-for="request in community.requests" :key="request.id" class="rounded-xl bg-[#f6f8f1] p-4"><p class="text-sm font-bold">{{ request.farmer }} <span class="text-xs font-normal">· {{ request.incoming ? 'Incoming' : 'Sent' }} · {{ request.status }}</span></p><p v-if="request.contact" class="mt-2 break-words text-xs">Shared contact: {{ request.contact }}</p><div v-if="request.incoming && request.status === 'pending'" class="mt-3 flex gap-2"><button class="primary" :disabled="busy" @click="communityAction('respond', { requestId: request.id, status: 'accepted' })">Accept & share my contact</button><button class="secondary" :disabled="busy" @click="communityAction('respond', { requestId: request.id, status: 'declined' })">Decline</button></div><button class="secondary mt-3" :disabled="busy" @click="communityAction('block', { targetId: request.farmerId })">Block this connection</button></li></ul><button class="secondary mt-4" :disabled="busy" @click="async () => { try { await loadCommunity() } catch (cause) { error = issue(cause) } }">Refresh connections</button><p class="mt-3 text-xs text-[#718068]">Connections exchange contact details only after acceptance. In-app farmer messaging is not included.</p></section>
+      <section v-if="searched" class="rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><h3 class="font-bold">Nearby farmers · {{ farmers.length }}</h3><p v-if="!farmers.length" class="mt-4 text-sm leading-7 text-[#718068]">No opted-in farmers were found in this area. Try a wider radius or invite your farming community to join. We never add made-up profiles.</p><ul v-else class="mt-4 space-y-4"><li v-for="farmer in farmers" :key="farmer.id" class="rounded-xl border border-[#e3eadc] p-4"><h4 class="font-bold">{{ farmer.displayName }}</h4><p class="mt-1 text-xs capitalize text-[#718068]">{{ farmer.farmType }} · Approximately {{ farmer.distanceKm }} km away</p><p class="mt-2 break-words text-sm text-[#718068]">{{ farmer.bio }}</p><div class="mt-3 flex flex-wrap gap-2"><button type="button" class="secondary" :disabled="busy || locating" @click="showFarmer(farmer)">View farmer details</button><button class="primary" :disabled="busy || locating" @click="communityAction('request', { targetId: farmer.id })">Request connection</button><button class="secondary" :disabled="busy || locating" @click="communityAction('block', { targetId: farmer.id })">Block farmer</button></div></li></ul></section>
+      <section id="nearby-farmer-map" class="scroll-mt-5 rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-bold">Your farming neighbourhood</h3><span class="text-xs text-[#718068]">{{ farmers.length }} opted-in farmers in this search</span></div><p class="mt-2 text-xs leading-6 text-[#718068]">Load the interactive map to share map-view information and your IP with the tile provider (OpenStreetMap by default). Green markers show rounded areas, never exact addresses. Use the list if you prefer not to load external maps.</p><FbButton type="button" variant="secondary" class="mt-4" :disabled="busy || locating" @click="loadMap">{{ mapPoint ? 'Recenter on entered area' : 'Load interactive farmer map' }}</FbButton><div v-if="mapPoint" class="mt-4"><FarmerMap :center="mapPoint" :farmers="farmers" :selected-id="selectedId" @select="showFarmer($event)" /></div><div v-if="selectedFarmer" aria-live="polite" class="mt-4 rounded-xl border border-[#cee0bc] bg-[#f2f7e9] p-4"><h4 class="font-bold text-[#174b31]">{{ selectedFarmer.displayName }}</h4><p class="mt-1 text-xs capitalize text-[#718068]">{{ selectedFarmer.farmType }} · Approximately {{ selectedFarmer.distanceKm }} km away</p><p class="mt-2 break-words text-sm text-[#64745c]">{{ selectedFarmer.bio }}</p><div class="mt-4 flex flex-wrap gap-2"><button class="primary" :disabled="busy || locating" @click="communityAction('request', { targetId: selectedFarmer.id })">Request connection</button><button class="secondary" :disabled="busy || locating" @click="communityAction('block', { targetId: selectedFarmer.id })">Block farmer</button></div><p class="mt-3 text-xs leading-5 text-[#718068]">Publish your own profile to connect. Contact details are shared only after the request is accepted.</p></div></section>
+      <section class="rounded-2xl border border-[#dce5d4] bg-white p-5 sm:p-7"><h3 class="font-bold">Your connections</h3><p v-if="!community.requests.length" class="mt-3 text-sm text-[#718068]">No requests yet. Connect with an opted-in farmer nearby.</p><ul class="mt-3 space-y-3"><li v-for="request in community.requests" :key="request.id" class="rounded-xl bg-[#f6f8f1] p-4"><p class="text-sm font-bold">{{ request.farmer }} <span class="text-xs font-normal">· {{ request.incoming ? 'Incoming' : 'Sent' }} · {{ request.status }}</span></p><p v-if="request.status === 'accepted' && request.contact" class="mt-2 break-words text-xs">Shared contact: {{ request.contact }}</p><div v-if="request.incoming && request.status === 'pending'" class="mt-3 flex gap-2"><button class="primary" :disabled="busy || locating" @click="communityAction('respond', { requestId: request.id, status: 'accepted' })">Accept & share my contact</button><button class="secondary" :disabled="busy || locating" @click="communityAction('respond', { requestId: request.id, status: 'declined' })">Decline</button></div><button class="secondary mt-3" :disabled="busy || locating" @click="communityAction('block', { targetId: request.farmerId })">Block this connection</button></li></ul><button class="secondary mt-4" :disabled="busy || locating" @click="loadCommunity">Refresh connections</button><p class="mt-3 text-xs text-[#718068]">Connections exchange contact details only after acceptance. In-app farmer messaging is not included.</p></section>
     </template>
   </div>
 </template>
