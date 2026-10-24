@@ -31,6 +31,7 @@ test('all FarmBuddy UI components compile and server render with real Vue and Re
     assert.equal(typeof html, 'string', name)
     if (name === 'FbTabs.vue') assert.match(html, /role="tablist"/)
     if (name === 'FbBoard.vue') assert.match(html, /No tasks here/)
+    if (name === 'FbPageHeader.vue') assert.match(html, /Farm content/)
   }
 })
 test('shared button forwards native attributes and disables duplicate submission while busy', async () => {
