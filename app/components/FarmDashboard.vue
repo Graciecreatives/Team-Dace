@@ -1,4 +1,6 @@
 <script setup>
+import FarmJournal from './FarmJournal.vue'
+import FbDialog from './ui/FbDialog.vue'
 import FarmSettings from './FarmSettings.vue'
 import FarmWatch from './FarmWatch.vue'
 import FarmBookkeeping from './FarmBookkeeping.vue'
@@ -89,35 +91,98 @@ const recent = computed(() => [...records.value].sort((a, b) => b.createdAt.loca
 const money = value => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 2 }).format(value)
 const displayDate = value => new Date(value.length === 10 ? `${value}T12:00:00` : value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 function chooseSection(id) { if (id === 'weather') watchStarted.value = true; section.value = id; mobileMenu.value = false; feedback.value = ''; error.value = '' }
-function openDialog(type) { dialogTrigger = document.activeElement; dialog.value = type; error.value = ''; feedback.value = ''; nextTick(() => document.getElementById(type === 'record' ? 'record-title' : 'reminder-title')?.focus()) }
-function addBookkeepingEntry(category) { Object.assign(recordForm, { title: '', category: category === 'expense' ? 'expense' : 'income', amount: '', note: '' }); openDialog('record') }
+function openDialog(type) { if (busy.value) return; if (editing.value) { if (type === 'record') Object.assign(recordForm, { title: '', category: 'activity', amount: '', note: '' }); else Object.assign(reminderForm, { title: '', date: '' }) } editing.value = null; dialogTrigger = document.activeElement; dialog.value = type; error.value = ''; feedback.value = ''; nextTick(() => document.getElementById(type === 'record' ? 'record-title' : 'reminder-title')?.focus()) }
+function addBookkeepingEntry(category) { if (busy.value) return; openDialog('record'); Object.assign(recordForm, { title: '', category: category === 'expense' ? 'expense' : 'income', amount: '', note: '' }) }
 function closeDialog() { if (!saving.value) { dialog.value = null; error.value = '' } }
 function apiMessage(e) { return e?.data?.statusMessage || e?.data?.message || 'Something went wrong. Please try again.' }
-async function saveRecord() {
-  if (!recordForm.title.trim()) { error.value = 'Please enter a record title.'; return }
-  saving.value = true; error.value = ''
+const editing = ref(null)
+const deletion = ref(null)
+const busy = computed(() => saving.value || !!deleting.value || !!pendingReminder.value)
+let generation = 0
+let disposed = false
+const controllers = new Set()
+function invalidateAccount() {
+  generation++
+  controllers.forEach(controller => controller.abort())
+  controllers.clear()
+  if (!disposed) farm.value = { records: [], reminders: [] }
+  saving.value = false; deleting.value = ''; pendingReminder.value = ''
+  dialog.value = null; editing.value = null; deletion.value = null
+  error.value = ''; feedback.value = ''
+  Object.assign(recordForm, { title: '', category: 'activity', amount: '', note: '' })
+  Object.assign(reminderForm, { title: '', date: '' })
+}
+watch(() => user.value.id, invalidateAccount, { flush: 'sync' })
+function editRecord(record) {
+  if (busy.value || record.sourceId) return
+  openDialog('record'); editing.value = { ...record }
+  Object.assign(recordForm, { title: record.title, category: record.category, amount: record.amount ?? '', note: record.note || '' })
+}
+function editReminder(reminder) {
+  if (busy.value) return
+  openDialog('reminder'); editing.value = { ...reminder }
+  Object.assign(reminderForm, { title: reminder.title, date: reminder.date })
+}
+function deleteRecord(record) { if (!busy.value && !record.sourceId) deletion.value = { collection: 'records', item: { ...record } } }
+function deleteReminder(reminder) { if (!busy.value) deletion.value = { collection: 'reminders', item: { ...reminder } } }
+async function mutate(collection, method, item, payload, flag, success) {
+  if (busy.value || disposed) return
+  const epoch = generation, account = user.value.id
+  const controller = new AbortController()
+  controllers.add(controller)
+  const current = () => !disposed && epoch === generation && account === user.value.id
+  flag.value = flag === saving ? true : item.id
+  error.value = ''
   try {
-    await $fetch('/api/farm/records', { method: 'POST', body: { ...recordForm, amount: recordForm.category === 'activity' ? 0 : Number(recordForm.amount) } })
-    await refreshFarm(); Object.assign(recordForm, { title: '', category: 'activity', amount: '', note: '' }); dialog.value = null; feedback.value = 'Farm record saved.'
-  } catch (e) { error.value = apiMessage(e) } finally { saving.value = false }
+    const response = await $fetch(`/api/farm/${collection}${item ? `/${item.id}` : ''}`, { method, ...(payload ? { body: { ...payload } } : {}), signal: controller.signal, timeout: 15000, retry: 0 })
+    if (!current()) return
+    if (method === 'DELETE') {
+      farm.value = { ...farm.value, [collection]: (farm.value?.[collection] || []).filter(row => row.id !== item.id) }
+      deletion.value = null
+    } else {
+      const saved = response[collection === 'records' ? 'record' : 'reminder']
+      const rows = farm.value?.[collection] || []
+      farm.value = { ...farm.value, [collection]: rows.some(row => row.id === saved.id) ? rows.map(row => row.id === saved.id ? saved : row) : [...rows, saved] }
+      if (flag === saving) {
+        dialog.value = null; editing.value = null
+        if (collection === 'records') Object.assign(recordForm, { title: '', category: 'activity', amount: '', note: '' })
+        else Object.assign(reminderForm, { title: '', date: '' })
+      }
+    }
+    feedback.value = success
+    // Fetch independently so shared async-data cannot publish a stale account response.
+    try {
+      const refreshed = await $fetch('/api/farm', { signal: controller.signal, timeout: 15000, retry: 0 })
+      if (current()) farm.value = refreshed
+    } catch {
+      if (current()) feedback.value = `${success} The latest farm data could not be refreshed. Your change is saved. Reload to sync.`
+    }
+  } catch (e) { if (current()) error.value = apiMessage(e) }
+  finally { controllers.delete(controller); if (current()) flag.value = flag === saving ? false : '' }
+}
+async function saveRecord() {
+  if (busy.value) return
+  if (!recordForm.title.trim()) { error.value = 'Please enter a record title.'; return }
+  const amount = recordForm.category === 'activity' ? 0 : Number(recordForm.amount)
+  if (!['activity', 'income', 'expense'].includes(recordForm.category) || !Number.isFinite(amount) || (recordForm.category !== 'activity' && amount <= 0) || amount > 1000000000) { error.value = 'Please enter a valid amount and record type.'; return }
+  const item = editing.value ? { ...editing.value } : null
+  if (item?.sourceId) return
+  await mutate('records', item ? 'PATCH' : 'POST', item, { title: recordForm.title.trim(), category: recordForm.category, amount, note: recordForm.note, ...(item?.updatedAt ? { expectedUpdatedAt: item.updatedAt } : {}) }, saving, 'Farm record saved.')
 }
 async function saveReminder() {
-  if (!reminderForm.title.trim()) { error.value = 'Please enter a reminder title.'; return }
-  saving.value = true; error.value = ''
-  try {
-    await $fetch('/api/farm/reminders', { method: 'POST', body: { ...reminderForm } })
-    await refreshFarm(); Object.assign(reminderForm, { title: '', date: '' }); dialog.value = null; feedback.value = 'Reminder saved. Your tasks are listed here in FarmBuddy.'
-  } catch (e) { error.value = apiMessage(e) } finally { saving.value = false }
+  if (busy.value) return
+  if (!reminderForm.title.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(reminderForm.date) || !Number.isFinite(Date.parse(reminderForm.date)) || new Date(reminderForm.date).toISOString().slice(0, 10) !== reminderForm.date) { error.value = 'Please enter a reminder title and valid due date.'; return }
+  const item = editing.value ? { ...editing.value } : null
+  await mutate('reminders', item ? 'PATCH' : 'POST', item, { title: reminderForm.title.trim(), date: reminderForm.date, ...(item?.updatedAt ? { expectedUpdatedAt: item.updatedAt } : {}) }, saving, 'Reminder saved.')
 }
 async function toggleReminder(reminder) {
-  if (pendingReminder.value) return
-  pendingReminder.value = reminder.id; error.value = ''
-  try { await $fetch(`/api/farm/reminders/${reminder.id}`, { method: 'PATCH', body: { completed: !reminder.completed } }); await refreshFarm() } catch (e) { error.value = apiMessage(e) } finally { pendingReminder.value = '' }
+  const item = { ...reminder }
+  await mutate('reminders', 'PATCH', item, { completed: !item.completed, ...(item.updatedAt ? { expectedUpdatedAt: item.updatedAt } : {}) }, pendingReminder, 'Reminder updated.')
 }
-async function deleteRecord(record) {
-  if (!window.confirm(`Delete “${record.title}”? This cannot be undone.`)) return
-  deleting.value = record.id; error.value = ''
-  try { await $fetch(`/api/farm/records/${record.id}`, { method: 'DELETE' }); await refreshFarm(); feedback.value = 'Record deleted.' } catch (e) { error.value = apiMessage(e) } finally { deleting.value = '' }
+async function confirmDeletion() {
+  if (!deletion.value || busy.value) return
+  const { collection, item } = deletion.value
+  await mutate(collection, 'DELETE', { ...item }, collection === 'reminders' && item.updatedAt ? { expectedUpdatedAt: item.updatedAt } : null, deleting, collection === 'records' ? 'Record deleted.' : 'Reminder deleted.')
 }
 async function profileSaved(savedUser) {
   session.value = { ...session.value, user: savedUser }
@@ -132,7 +197,7 @@ async function logout() {
 function onEscape(event) { if (event.key === 'Escape') { closeDialog(); if (mobileMenu.value) closeMenu(true) } }
 function trapFocus(event) {
   if (event.key !== 'Tab') return
-  const elements = [...event.currentTarget.querySelectorAll('button:not([disabled]),input:not([disabled]),select,textarea')]
+  const elements = [...event.currentTarget.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')]
   const first = elements[0], last = elements[elements.length - 1]
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
@@ -143,6 +208,8 @@ onMounted(() => {
   window.addEventListener('keydown', onEscape)
 })
 onUnmounted(() => {
+  disposed = true
+  invalidateAccount()
   window.removeEventListener('keydown', onEscape)
   desktopMedia?.removeEventListener('change', onBreakpointChange)
   if (savedBodyOverflow !== undefined) document.body.style.overflow = savedBodyOverflow
@@ -163,18 +230,18 @@ onUnmounted(() => {
       <header class="flex min-h-20 items-center justify-between gap-4 border-b border-[#DFE6D9] bg-white/70 px-5 py-4 sm:px-8">
         <div class="flex items-center gap-3"><button ref="menuTrigger" id="dashboard-menu-toggle" type="button" :aria-label="mobileMenu ? 'Close dashboard navigation' : 'Open dashboard navigation'" aria-controls="dashboard-navigation" :aria-expanded="mobileMenu" class="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-[#EDF1E6] lg:hidden" @click="mobileMenu = !mobileMenu"><component :is="mobileMenu ? X : Menu" :size="22" aria-hidden="true" /></button><button type="button" class="inline-flex items-center gap-2 rounded-xl border border-[#DCE5D8] px-3 py-2 text-xs font-semibold text-[#066136]" aria-label="Open Farm Watch weather and health notifications" @click="chooseSection('weather')"><Bell :size="17" />Farm Watch<span v-if="unreadWatch" class="rounded-full bg-[#F9C23C] px-2 py-0.5 text-[10px]" :aria-label="`${unreadWatch} unread notifications`">{{ unreadWatch }}</span></button></div>
       </header>
-      <main class="mx-auto w-full" :class="[['marketplace', 'planning', 'operations', 'business', 'team', 'inventory', 'enterprises'].includes(section) ? 'max-w-none' : 'max-w-[1440px]', section === 'assistant' ? 'px-2 py-3 sm:px-5 sm:py-5' : 'px-5 py-7 sm:px-8 sm:py-9']">
+      <main class="mx-auto w-full" :class="[['marketplace', 'planning', 'operations', 'business', 'team', 'inventory', 'enterprises', 'records', 'reminders', 'bookkeeping'].includes(section) ? 'max-w-none' : 'max-w-[1440px]', section === 'assistant' ? 'px-2 py-3 sm:px-5 sm:py-5' : 'px-5 py-7 sm:px-8 sm:py-9']">
         <p v-if="feedback" role="status" class="mb-5 rounded-xl border border-[#CFE1C4] bg-[#E8F2E0] px-4 py-3 text-sm text-[#32673B]">{{ feedback }}</p>
         <div v-if="(error && !dialog) || loadError" role="alert" class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ error || 'Could not load your farm data.' }}<button v-if="loadError" type="button" class="ml-2 font-bold underline" @click="refreshFarm()">Retry</button></div>
 
-        <div v-if="['overview', 'records', 'reminders'].includes(section)" class="mb-5 flex flex-wrap gap-3"><button type="button" class="dash-button" @click="openDialog('record')"><Plus :size="17" />Add farm record</button><button type="button" class="dash-button-secondary" @click="openDialog('reminder')"><Bell :size="16" />Set reminder</button></div>
+        <div v-if="section === 'overview'" class="mb-5 flex flex-wrap gap-3"><button type="button" :disabled="busy" class="dash-button" @click="openDialog('record')"><Plus :size="17" />Add farm record</button><button type="button" :disabled="busy" class="dash-button-secondary" @click="openDialog('reminder')"><Bell :size="16" />Set reminder</button></div>
         <template v-if="section === 'overview'">
           <section aria-label="Farm summary" class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div v-for="stat in [{label:'Total income',value:money(income),note:'All recorded income',icon:TrendingUp},{label:'Total expenses',value:money(expenses),note:'All recorded expenses',icon:TrendingDown},{label:'Net balance',value:money(income-expenses),note:'Income minus expenses',icon:Wallet},{label:'Upcoming tasks',value:pending.length,note:'Reminders still to complete',icon:CalendarDays}]" :key="stat.label" class="dash-panel p-5"><div class="flex items-center justify-between"><p class="text-xs font-semibold text-[#74846C]">{{ stat.label }}</p><span class="rounded-lg bg-[#EDF2E5] p-2 text-[#4D7847]"><component :is="stat.icon" :size="17" /></span></div><p class="mt-3 text-2xl font-bold tracking-tight">{{ stat.value }}</p><p class="mt-2 text-[10px] text-[#91A085]">{{ stat.note }}</p></div>
           </section>
         </template>
 
-        <div v-if="section === 'overview' || section === 'records' || section === 'reminders'" class="grid items-start gap-6" :class="section === 'overview' ? 'xl:grid-cols-[1.4fr_1fr]' : ''">
+        <div v-if="section === 'overview'" class="grid items-start gap-6" :class="section === 'overview' ? 'xl:grid-cols-[1.4fr_1fr]' : ''">
           <section v-if="section !== 'reminders'" class="dash-panel overflow-hidden" aria-labelledby="records-title">
             <div class="flex items-center justify-between gap-4 border-b border-[#EDF0E8] p-5 sm:p-6"><div><h2 id="records-title" class="font-bold">{{ section === 'overview' ? 'Recent farm activity' : 'Your farm records' }}</h2><p class="mt-1 text-xs text-[#8B9981]">A clear picture of what’s happening.</p></div><button v-if="section === 'overview'" type="button" class="text-xs font-semibold text-[#066136]" @click="chooseSection('records')">View all</button><span v-else class="rounded-full bg-[#EDF2E5] px-3 py-1 text-xs text-[#617857]">{{ records.length }} records</span></div>
             <div v-if="!recent.length" class="px-6 py-12 text-center"><span class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EFF3E8] text-[#729460]"><ClipboardList :size="26" /></span><h3 class="mt-4 text-sm font-bold">Your farm story starts here.</h3><p class="mx-auto mt-2 max-w-xs text-xs leading-6 text-[#8A9880]">{{ tailored.hint }}</p><button type="button" class="mt-5 inline-flex items-center gap-2 text-xs font-bold text-[#066136]" @click="openDialog('record')"><Plus :size="15" />Add your first record</button></div>
@@ -186,7 +253,8 @@ onUnmounted(() => {
         <FarmSettings v-if="section === 'settings'" :user="user" :logging-out="loggingOut" :on-profile-saved="profileSaved" @logout="logout" />
         <FarmMarketplace v-if="section === 'marketplace'" :user="user" />
         <FarmWorkspace v-if="['planning', 'operations', 'business', 'team'].includes(section)" :user="user" :section="section" @changed="refreshFarm" />
-        <FarmBookkeeping v-if="section === 'bookkeeping'" :records="records" :deleting="deleting" @add-entry="addBookkeepingEntry" @delete-entry="deleteRecord" />
+        <FarmJournal v-if="['records', 'reminders'].includes(section)" :mode="section" :records="records" :reminders="reminders" :busy="busy" :deleting="deleting" :pending-reminder="pendingReminder" :user-id="user.id" @add-record="openDialog('record')" @add-reminder="openDialog('reminder')" @edit-record="editRecord" @delete-record="deleteRecord" @edit-reminder="editReminder" @delete-reminder="deleteReminder" @toggle-reminder="toggleReminder" />
+        <FarmBookkeeping v-if="section === 'bookkeeping'" :records="records" :deleting="deleting" :user-id="user.id" :busy="busy" @add-entry="addBookkeepingEntry" @edit-entry="editRecord" @delete-entry="deleteRecord" />
         <FarmManagement v-if="['enterprises', 'inventory'].includes(section)" :key="section" :section="section" :user="user" />
         <FarmNotes v-if="section === 'notes'" :user="user" mode="notes" />
         <FarmAssistant v-if="section === 'assistant'" :user="user" @records-changed="refreshFarm" />
@@ -198,12 +266,13 @@ onUnmounted(() => {
       </main>
     </div>
 
+    <FbDialog :open="!!deletion" title="Delete entry?" :description="deletion ? `Delete “${deletion.item.title}”? This cannot be undone.` : ''" :busy="busy" @update:open="value => { if (!value && !busy) deletion = null }"><p v-if="error" role="alert" class="text-sm text-red-700">{{ error }}</p><template #footer><button type="button" class="dash-button-secondary" :disabled="busy" @click="deletion = null">Cancel</button><button type="button" class="dash-button" :disabled="busy" @click="confirmDeletion">{{ deleting ? 'Deleting…' : 'Delete entry' }}</button></template></FbDialog>
     <div v-if="dialog" class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#0A2E20]/45 p-4 backdrop-blur-sm" @click.self="closeDialog">
       <section role="dialog" aria-modal="true" aria-labelledby="dialog-title" class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-[#FAFBF7] p-6 shadow-2xl sm:p-8" @keydown="trapFocus">
-        <div class="mb-6 flex items-center justify-between gap-4"><h2 id="dialog-title" class="text-xl font-bold">{{ dialog === 'record' ? 'Add a farm record' : 'Plan your next task' }}</h2><button type="button" aria-label="Close dialog" :disabled="saving" class="rounded-full p-2 text-[#819176] hover:bg-[#EAF0E1]" @click="closeDialog"><X :size="20" /></button></div>
+        <div class="mb-6 flex items-center justify-between gap-4"><h2 id="dialog-title" class="text-xl font-bold">{{ editing ? (dialog === 'record' ? 'Edit farm record' : 'Edit reminder') : (dialog === 'record' ? 'Add a farm record' : 'Plan your next task') }}</h2><button type="button" aria-label="Close dialog" :disabled="saving" class="rounded-full p-2 text-[#819176] hover:bg-[#EAF0E1]" @click="closeDialog"><X :size="20" /></button></div>
         <p v-if="error" role="alert" class="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
-        <form v-if="dialog === 'record'" class="space-y-4" @submit.prevent="saveRecord"><div><label for="record-title" class="dash-label">What happened?</label><input id="record-title" v-model="recordForm.title" required maxlength="160" :placeholder="tailored.record" class="dash-input"></div><div><label for="record-category" class="dash-label">Record type</label><select id="record-category" v-model="recordForm.category" class="dash-input"><option value="activity">Farm activity</option><option value="income">Income</option><option value="expense">Expense</option></select></div><div v-if="recordForm.category !== 'activity'"><label for="record-amount" class="dash-label">Amount (NGN)</label><input id="record-amount" v-model="recordForm.amount" type="number" min="0.01" max="1000000000" step="0.01" required inputmode="decimal" placeholder="0.00" class="dash-input"></div><div><label for="record-note" class="dash-label">A few extra details <span class="font-normal text-[#94A08A]">(optional)</span></label><textarea id="record-note" v-model="recordForm.note" rows="3" maxlength="2000" class="dash-input resize-y" placeholder="Anything worth remembering…" /></div><button type="submit" :disabled="saving" class="dash-button w-full justify-center"><LoaderCircle v-if="saving" :size="17" class="animate-spin" />{{ saving ? 'Saving…' : 'Save record' }}</button></form>
-        <form v-else class="space-y-4" @submit.prevent="saveReminder"><div><label for="reminder-title" class="dash-label">What do you need to do?</label><input id="reminder-title" v-model="reminderForm.title" required maxlength="160" :placeholder="tailored.reminder" class="dash-input"></div><div><label for="reminder-date" class="dash-label">When is it due?</label><input id="reminder-date" v-model="reminderForm.date" type="date" required class="dash-input"></div><p class="text-xs leading-6 text-[#8B9981]">Your reminder will appear on your dashboard. No email or phone notifications are sent.</p><button type="submit" :disabled="saving" class="dash-button w-full justify-center"><LoaderCircle v-if="saving" :size="17" class="animate-spin" />{{ saving ? 'Saving…' : 'Save reminder' }}</button></form>
+        <form v-if="dialog === 'record'" class="space-y-4" @submit.prevent="saveRecord"><fieldset :disabled="saving" class="contents"><div><label for="record-title" class="dash-label">What happened?</label><input id="record-title" v-model="recordForm.title" required maxlength="160" :placeholder="tailored.record" class="dash-input"></div><div><label for="record-category" class="dash-label">Record type</label><select id="record-category" v-model="recordForm.category" class="dash-input"><option value="activity">Farm activity</option><option value="income">Income</option><option value="expense">Expense</option></select></div><div v-if="recordForm.category !== 'activity'"><label for="record-amount" class="dash-label">Amount (NGN)</label><input id="record-amount" v-model="recordForm.amount" type="number" min="0.01" max="1000000000" step="0.01" required inputmode="decimal" placeholder="0.00" class="dash-input"></div><div><label for="record-note" class="dash-label">A few extra details <span class="font-normal text-[#94A08A]">(optional)</span></label><textarea id="record-note" v-model="recordForm.note" rows="3" maxlength="2000" class="dash-input resize-y" placeholder="Anything worth remembering…" /></div><button type="submit" :disabled="saving" class="dash-button w-full justify-center"><LoaderCircle v-if="saving" :size="17" class="animate-spin" />{{ saving ? 'Saving…' : 'Save record' }}</button></fieldset></form>
+        <form v-else class="space-y-4" @submit.prevent="saveReminder"><fieldset :disabled="saving" class="contents"><div><label for="reminder-title" class="dash-label">What do you need to do?</label><input id="reminder-title" v-model="reminderForm.title" required maxlength="160" :placeholder="tailored.reminder" class="dash-input"></div><div><label for="reminder-date" class="dash-label">When is it due?</label><input id="reminder-date" v-model="reminderForm.date" type="date" required class="dash-input"></div><p class="text-xs leading-6 text-[#8B9981]">Your reminder will appear on your dashboard. No email or phone notifications are sent.</p><button type="submit" :disabled="saving" class="dash-button w-full justify-center"><LoaderCircle v-if="saving" :size="17" class="animate-spin" />{{ saving ? 'Saving…' : 'Save reminder' }}</button></fieldset></form>
       </section>
     </div>
   </div>
