@@ -1,10 +1,8 @@
-import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto'
-import { promisify } from 'node:util'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createError, defineEventHandler, deleteCookie, getCookie, getHeader, getRequestIP, getRequestURL, setCookie, setHeader } from 'h3'
 import { store } from '../utils/store.js'
-import { authConfig, authClient, confirmationRedirect, providerCall, verifyUser, verifiedIdentity, resolveSupabaseAuth, writeAuthCookies, logoutSupabase } from '../utils/supabase-auth.js'
+import { authConfig, hashPassword, verifyPassword } from '../utils/auth.js'
 
-const derive = promisify(scrypt)
 const cookieName = 'farmbuddy_session'
 const lifetime = 7 * 24 * 60 * 60
 const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' }
@@ -13,7 +11,6 @@ const fail = (statusCode, statusMessage) => { throw createError({ statusCode, st
 const publicUser = ({ id, name, email, farmName, farmType, onboardingCompleted, location = '', mainEnterprises = '', preferredLanguage = '' }) => ({ id, name, email, farmName, farmType, onboardingCompleted: onboardingCompleted === true, location, mainEnterprises, preferredLanguage })
 const publicRecord = ({ userId, ...record }) => record
 const buckets = new Map()
-let activeHashes = 0
 
 function throttle(event) {
   const now = Date.now()
@@ -29,13 +26,6 @@ function throttle(event) {
     setHeader(event, 'Retry-After', Math.ceil((bucket.until - now) / 1000))
     fail(429, 'Too many authentication attempts')
   }
-}
-
-async function passwordHash(password, salt) {
-  if (activeHashes >= 4) fail(429, 'Authentication temporarily busy')
-  activeHashes++
-  try { return await derive(password, salt, 64, { N: 16384, r: 8, p: 1 }) }
-  finally { activeHashes-- }
 }
 
 function mutationGuard(event) {
@@ -92,12 +82,7 @@ function token(event) {
   return value && /^[a-f0-9]{64}$/.test(value) ? digest(value) : null
 }
 function authenticated(data, event) {
-  if (authConfig().mode === 'supabase') {
-    const identity = verifiedIdentity(event)
-    const user = identity && data.users.find(item => item.supabaseId === identity.id)
-    if (!user) fail(401, 'Authentication required')
-    return user
-  }
+  if (!authConfig().configured) fail(503, 'Authentication configuration unavailable. Use local or cloudflare mode.')
   const hash = token(event)
   const session = data.sessions.find(item => item.tokenHash === hash && item.expiresAt > Date.now())
   const user = session && data.users.find(item => item.id === session.userId)
@@ -151,7 +136,6 @@ export default defineEventHandler(async event => {
   const path = getRequestURL(event).pathname.replace(/\/$/, '')
   const method = event.method
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) mutationGuard(event)
-  await resolveSupabaseAuth(event)
   if (method === 'GET' && path === '/api/auth/config') {
     const { mode, configured } = authConfig()
     return { mode, configured }
@@ -162,30 +146,7 @@ export default defineEventHandler(async event => {
     const input = await body(event)
     const registering = path.endsWith('/register')
     const { email, password } = credentials(input, registering)
-    if (authConfig().mode === 'supabase') {
-      const profile = registering ? {
-        name: profileText(input.name, 'name', 100),
-        farmName: profileText(input.farmName, 'farmName', 150, true),
-        farmType: profileText(input.farmType, 'farmType', 100, true),
-      } : null
-      const client = authClient(event)
-      const result = await providerCall(() => registering
-        ? client.auth.signUp({ email, password, options: { data: profile, emailRedirectTo: confirmationRedirect() } })
-        : client.auth.signInWithPassword({ email, password }))
-      if (registering && !result.session) return { requiresEmailConfirmation: true, message: 'Check your email to confirm your account, then sign in.' }
-      if (!result.session?.access_token) fail(401, 'Invalid email or password')
-      const identity = await verifyUser(client, result.session.access_token)
-      const user = await store(data => {
-        const existing = data.users.find(item => item.supabaseId === identity.id)
-        if (existing) return publicUser(existing)
-        if (data.users.some(item => item.email.toLowerCase() === identity.email)) fail(409, 'Account migration required. Contact support.')
-        const created = { id: randomUUID(), supabaseId: identity.id, email: identity.email, name: profile?.name ?? identity.profile.name, farmName: profile?.farmName ?? identity.profile.farmName, farmType: profile?.farmType ?? identity.profile.farmType, onboardingCompleted: false, location: '', mainEnterprises: '', preferredLanguage: '' }
-        data.users.push(created)
-        return publicUser(created)
-      }, true)
-      writeAuthCookies(event, result.session)
-      return { user }
-    }
+    if (!authConfig().configured) fail(503, 'Authentication configuration unavailable. Use local or cloudflare mode.')
     const rawToken = randomBytes(32).toString('hex')
     let user
     if (registering) {
@@ -193,7 +154,7 @@ export default defineEventHandler(async event => {
       const farmName = text(input.farmName, 'farmName', 150, true)
       const farmType = text(input.farmType, 'farmType', 100, true)
       const salt = randomBytes(16).toString('hex')
-      const hash = (await passwordHash(password, salt)).toString('hex')
+      const hash = await hashPassword(password, salt)
       user = await store(data => {
         if (data.users.some(item => item.email === email)) fail(409, 'Email already registered')
         const created = { id: randomUUID(), name, email, farmName, farmType, onboardingCompleted: false, location: '', mainEnterprises: '', preferredLanguage: '', salt, passwordHash: hash }
@@ -203,11 +164,15 @@ export default defineEventHandler(async event => {
       }, true)
     } else {
       const found = await store(data => data.users.find(item => item.email === email))
-      const hash = await passwordHash(password, found?.salt || '00000000000000000000000000000000')
-      if (!found?.passwordHash || !found?.salt || !timingSafeEqual(hash, Buffer.from(found.passwordHash, 'hex'))) fail(401, 'Invalid email or password')
+      const valid = await verifyPassword(password, found)
+      if (!valid) fail(401, 'Invalid email or password')
+      const upgraded = !found.passwordHash.startsWith('pbkdf2-sha256$') ? await hashPassword(password, found.salt) : null
       user = await store(data => {
-        newSession(data, found.id, event, rawToken)
-        return publicUser(found)
+        const current = data.users.find(item => item.id === found.id && item.passwordHash === found.passwordHash && item.salt === found.salt)
+        if (!current) fail(401, 'Invalid email or password')
+        if (upgraded) current.passwordHash = upgraded
+        newSession(data, current.id, event, rawToken)
+        return publicUser(current)
       }, true)
     }
     setCookie(event, cookieName, rawToken, { ...cookieOptions, maxAge: lifetime })
@@ -217,11 +182,6 @@ export default defineEventHandler(async event => {
     return store(data => ({ user: publicUser(authenticated(data, event)) }))
   }
   if (method === 'POST' && path === '/api/auth/logout') {
-    if (authConfig().mode === 'supabase') {
-      await logoutSupabase(event)
-      deleteCookie(event, cookieName, cookieOptions)
-      return { ok: true }
-    }
     await store(data => { data.sessions = data.sessions.filter(item => item.tokenHash !== token(event) && item.expiresAt > Date.now()) }, true)
     deleteCookie(event, cookieName, cookieOptions)
     return { ok: true }

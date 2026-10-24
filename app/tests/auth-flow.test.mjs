@@ -19,15 +19,13 @@ function registration(response) {
   return { submit: runInNewContext(`${block}\nsubmit`, state), state, destinations, source }
 }
 
-test('confirmation signup retains no password and never navigates into dashboard', async () => {
-  const { submit, state, destinations, source } = registration({ requiresEmailConfirmation: true })
+test('registration does not depend on provider email confirmation', async () => {
+  const { submit, state, destinations, source } = registration({ user: { onboardingCompleted: false } })
   await submit()
   assert.equal(state.password.value, '')
   assert.equal(state.loading.value, false)
-  assert.match(state.confirmation.value, /confirm/)
-  assert.equal(state.focused, true)
-  assert.deepEqual(destinations, [])
-  assert.match(source, /<form v-if="!confirmation"/)
+  assert.deepEqual(destinations, ['/onboarding'])
+  assert.doesNotMatch(source, /requiresEmailConfirmation|Supabase|confirmation-message/)
 })
 
 test('authenticated registration navigates, invalid success payload does not', async () => {
@@ -41,7 +39,7 @@ test('authenticated registration navigates, invalid success payload does not', a
   assert.equal(malformed.state.loading.value, false)
 })
 
-test('incomplete Supabase setup prevents registration requests without discarding input', async () => {
+test('invalid local or Cloudflare auth configuration prevents requests without discarding input', async () => {
   const form = registration({ user: { onboardingCompleted: false } })
   form.state.setupRequired.value = true
   await form.submit()

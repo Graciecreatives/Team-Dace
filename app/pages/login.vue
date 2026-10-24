@@ -9,19 +9,9 @@ const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
 const errorBox = ref(null)
-const confirmationNotice = ref('')
-onMounted(() => {
-  // Default Supabase confirmation links may carry tokens in the URL fragment.
-  // This app signs in with a password, never trusts or stores fragment tokens.
-  if (/^#(?:access_token=|error=)/.test(window.location.hash)) {
-    const failed = window.location.hash.startsWith('#error=')
-    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
-    confirmationNotice.value = failed ? 'This email link could not be completed. Try the latest confirmation email, then sign in.' : 'Email confirmation returned. Sign in below to continue. An expired or unconfirmed email will be reported when you sign in.'
-  }
-})
 const requestFetch = useRequestFetch()
 const { data: authConfiguration } = await useFetch('/api/auth/config')
-const setupRequired = computed(() => authConfiguration.value?.mode === 'supabase' && authConfiguration.value.configured === false)
+const setupRequired = computed(() => authConfiguration.value?.configured === false)
 let currentUser = null
 try {
   const response = await requestFetch('/api/auth/me')
@@ -61,9 +51,8 @@ async function submit() {
   <AuthShell>
     <h1 class="auth-title">Good to see you again.</h1>
     <p class="auth-description">Sign in to FarmBuddy. Let's pick up where your farm left off.</p>
-    <p v-if="confirmationNotice" role="status" class="rounded-xl border border-[#D6E1CB] bg-[#F1F5E9] p-4 text-sm leading-6 text-[#193D2B]">{{ confirmationNotice }}</p>
     <form class="auth-form" :aria-busy="loading" @submit.prevent="submit">
-      <div v-if="setupRequired" class="error-message" role="alert">Supabase setup is incomplete. Add your project URL as SUPABASE_URL and your publishable key as SUPABASE_PUBLISHABLE_KEY in the private .env file, then restart the server. Updating .env.example alone does not configure the app.</div>
+      <div v-if="setupRequired" class="error-message" role="alert">Authentication is unavailable. Ask the administrator to configure FarmBuddy for local development or Cloudflare hosting.</div>
       <div v-if="error" ref="errorBox" class="error-message" role="alert" tabindex="-1">{{ error }}</div>
       <div class="field">
         <label for="login-email">Email address</label>
