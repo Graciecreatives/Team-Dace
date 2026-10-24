@@ -8,17 +8,27 @@ import { coordinates, distanceKm, forecastSummary } from '../utils/location.js'
 const directory = await mkdtemp(join(process.env.JCODE_SCRATCH_DIR || tmpdir(), 'farmbuddy-location-'))
 process.env.FARMBUDDY_DATA_FILE = join(directory, 'store.json')
 process.env.NODE_ENV = 'production'
-delete process.env.OPEN_METEO_API_KEY
+process.env.OPENWEATHER_API_KEY = 'synthetic-weather-secret'
 const { default: auth } = await import('../api/[...].js')
 const { default: community } = await import('../api/community/index.js')
 const { default: weather } = await import('../api/weather.post.js')
 const clientFetch = globalThis.fetch
-let providerCalls = 0, malformed = false
+let providerCalls = 0, malformed = false, providerStatus = 200
 // Synthetic upstream boundary only. No network forecast or paid providers are called.
 globalThis.fetch = async (url, options) => {
-  if (String(url).includes('open-meteo.com')) {
+  if (new URL(url).hostname === 'api.openweathermap.org') {
+    assert.equal(new URL(url).pathname, '/data/2.5/forecast')
+    assert.equal(new URL(url).searchParams.get('units'), 'metric')
+    assert.equal(new URL(url).searchParams.get('appid'), 'synthetic-weather-secret')
+    assert.equal(options.redirect, 'error')
+    assert.ok(options.signal instanceof AbortSignal)
+    assert.equal(new URL(url).searchParams.get('lat'), String(Math.round(Number(new URL(url).searchParams.get('lat')) * 10) / 10))
     providerCalls++
-    return Response.json(malformed ? { unexpected: true } : { timezone: 'Africa/Lagos', daily: { time: ['2026-10-24', '2026-10-25'], temperature_2m_max: [36, 30], temperature_2m_min: [24, 22], precipitation_sum: [21, 0] } })
+    if (providerStatus !== 200) return new Response('synthetic-weather-secret upstream private detail', { status: providerStatus })
+    return Response.json(malformed ? { unexpected: true } : { cod: '200', city: { timezone: 3600 }, list: [
+      { dt: 1792843200, main: { temp: 36, temp_min: 24, temp_max: 36, humidity: 70 }, wind: { speed: 4 }, rain: { '3h': 21 } },
+      { dt: 1792886400, main: { temp: 30, temp_min: 22, temp_max: 30 } }
+    ] })
   }
   return clientFetch(url, options)
 }
@@ -84,13 +94,28 @@ try {
   assert.equal(hidden.body.profile.contact, '')
   await request('/api/community', 'POST', search, a.cookie, 403, { Origin: 'https://evil.example' })
   await request('/api/weather', 'POST', { latitude: '', longitude: 4 }, a.cookie, 400)
+  delete process.env.OPENWEATHER_API_KEY
+  await request('/api/weather', 'POST', { latitude: 7.4, longitude: 3.9 }, a.cookie, 503)
+  assert.equal(providerCalls, 0)
+  process.env.OPENWEATHER_API_KEY = 'synthetic-weather-secret'
+  await request('/api/weather', 'POST', { latitude: 7.4, longitude: 3.9 }, a.cookie, 403, { Origin: 'https://evil.example' })
   const weatherResult = await request('/api/weather', 'POST', { latitude: 7.4, longitude: 3.9 }, a.cookie)
-  assert.equal(weatherResult.body.days[0].indicators.length, 2)
-  assert.equal(weatherResult.body.days[1].indicators.length, 0)
+  assert.equal(weatherResult.body.days[0].indicators.length, 3)
+  assert.equal(weatherResult.body.days[1].indicators.length, 1)
+  assert.equal(weatherResult.body.source, 'OpenWeather')
+  assert.ok(!JSON.stringify(weatherResult.body).includes('synthetic-weather-secret'))
   await request('/api/weather', 'POST', { latitude: 7.4, longitude: 3.9 }, b.cookie)
   assert.equal(providerCalls, 1)
   malformed = true
   await request('/api/weather', 'POST', { latitude: 9, longitude: 4 }, a.cookie, 502)
+  for (const [i, status] of [401, 429, 500, 302].entries()) {
+    providerStatus = status
+    const failed = await request('/api/weather', 'POST', { latitude: 11 + i, longitude: 4 }, b.cookie, 502)
+    assert.ok(!JSON.stringify(failed.body).includes('synthetic-weather-secret'))
+    assert.ok(!JSON.stringify(failed.body).includes('upstream private detail'))
+  }
+  delete process.env.OPENWEATHER_API_KEY
+  await request('/api/weather', 'POST', { latitude: 7.4, longitude: 3.9 }, b.cookie, 503)
   console.log(`PASS: ${checks} weather/community HTTP checks plus location validation, opt-in privacy, accepted contacts, blocking, isolation, forecast boundaries and cache tests (synthetic weather provider).`)
 } finally {
   globalThis.fetch = clientFetch

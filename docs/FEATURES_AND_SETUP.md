@@ -35,8 +35,11 @@ Provider requests may incur charges. The app does not sign up, top up, purchase 
 
 ## Weather and maps
 - Weather checks use entered or explicitly requested device coordinates, rounded to 0.1° before requesting the forecast. They do not automatically publish a farmer profile.
-- Open-Meteo's free endpoint is for non-commercial development. Commercial deployments should obtain the appropriate plan and set `OPEN_METEO_API_KEY`, which selects the customer endpoint.
-- Planning indicators use daily maximum temperature at least 35°C or precipitation at least 20 mm. They are illustrative planning thresholds, not crop-specific safety limits or a guarantee that other hazards are absent.
+- Set `OPENWEATHER_API_KEY` in the server environment to an OpenWeather FREE five-day / three-hour forecast key. Do not put it in public runtime config or a `NUXT_PUBLIC_` variable. Missing configuration returns HTTP 503, with no fake or keyless fallback. This uses only `https://api.openweathermap.org/data/2.5/forecast` with rounded `lat`, `lon`, `units=metric`, and server-only `appid`, never the paid One Call API. No live or paid calls are needed for tests.
+- Forecast periods are grouped by the provider's fixed UTC offset. Temperatures are available-period extrema, rain is the sum of `rain.3h` (absent rain means no rain, not snow), humidity is the mean and wind the maximum speed in m/s. Missing optional humidity/wind stays unavailable. Partial days and missing intervals are labelled, not extrapolated to daily totals. The five-day horizon may span six calendar dates.
+- Requests reject redirects, time out after 10 seconds including body reading, and cap responses at 256 KiB. Provider errors are sanitized without URLs, keys, or upstream bodies. Cache entries contain only normalized forecast data.
+- Weather data provided by OpenWeather, with a visible provider link and CC BY-SA 4.0 license link. FarmBuddy aggregates the data and adds planning notes. Review OpenWeather's open-license/ODbL share-alike and logo attribution requirements before public distribution (https://openweathermap.org/faq).
+- Planning indicators use available-period maximum temperature at least 35°C or summed rain at least 20 mm, with cold prompts at 2°C or below. These are illustrative planning thresholds, not crop-specific safety limits, full-day extrema, or a guarantee that other hazards are absent. OpenWeather documentation and free access pricing were checked October 24, 2026.
 - Weather is cached server-side for 15 minutes by rounded area. No forecast is fabricated on provider failure.
 - Farmer discovery is hidden by default. Publishing requires a public farm name, rounded coordinates, and explicit consent. Location permission is optional, with manual coordinate entry available.
 - Interactive Leaflet maps load only after an explicit map action. The configured tile provider (OpenStreetMap by default) receives the viewed map areas and browser network information. Green markers represent opted-in farmers, grouped when rounded coordinates overlap. Select a marker, choose a farmer, and request a connection. Contacts remain hidden until acceptance. No public farmer samples or exact farm boundaries are invented.
@@ -66,13 +69,14 @@ npm test
 npm run build
 npm run test:production
 ```
-The API integration suites use isolated temporary data stores. The corruption tests intentionally return 500 and may print expected H3 errors; they verify failure without overwriting data, not corruption of the app's actual store. Weather and AI provider tests use synthetic upstream boundaries. Browser acceptance verified actual management forms, a simulated offline event/reconnect cycle, transcript review/save, a live keyless weather response, map consent boundaries, and honest unconfigured AI controls. Paid AI/voice calls and real microphone transcription were not tested without credentials/hardware support.
+The API integration suites use isolated temporary data stores. The corruption tests intentionally return 500 and may print expected H3 errors; they verify failure without overwriting data, not corruption of the app's actual store. Weather and AI provider tests use synthetic upstream boundaries. Browser acceptance verified actual management forms, a simulated offline event/reconnect cycle, transcript review/save, a historical keyless weather response (superseded by mocked OpenWeather validation), map consent boundaries, and honest unconfigured AI controls. Paid AI/voice calls and real microphone transcription were not tested without credentials/hardware support.
 
 ## Official references checked October 23, 2026
 - OpenRouter chat completions: https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion
 - YarnGPT voice API: https://www.yarngpt.ai/api-docs
-- Open-Meteo forecast: https://open-meteo.com/en/docs
-- Open-Meteo terms: https://open-meteo.com/en/terms
+- OpenWeather five-day / three-hour forecast: https://openweathermap.org/api/forecast5
+- OpenWeather free access pricing (separate from One Call): https://openweathermap.org/price
+- OpenWeather attribution: https://openweathermap.org/faq
 - OpenStreetMap embed/export: https://wiki.openstreetmap.org/wiki/Export
 
 ### Farm Watch sources checked October 24, 2026
