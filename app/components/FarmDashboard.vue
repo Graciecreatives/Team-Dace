@@ -1,15 +1,17 @@
 <script setup>
+import FarmSettings from './FarmSettings.vue'
 import FarmWatch from './FarmWatch.vue'
 import FarmBookkeeping from './FarmBookkeeping.vue'
 import FarmMarketplace from './FarmMarketplace.vue'
 import FarmTeam from './FarmTeam.vue'
-import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, LogOut, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, LoaderCircle, Trash2, Bot, CloudSun, Users, Store, Package, NotebookPen } from 'lucide-vue-next'
+import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, Settings, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, LoaderCircle, Trash2, Bot, CloudSun, Users, Store, Package, NotebookPen } from 'lucide-vue-next'
 
 useHead({ title: 'Your farm dashboard | FarmBuddy' })
-const { data: session, error: sessionError } = await useFetch('/api/auth/me')
+const { data: session, error: sessionError, refresh: refreshSession } = await useFetch('/api/auth/me')
 if (sessionError.value || !session.value?.user) await navigateTo('/login', { replace: true })
 else if (session.value.user.onboardingCompleted !== true) await navigateTo('/onboarding', { replace: true })
 const user = computed(() => session.value?.user || {})
+const farmerInitials = computed(() => (user.value.name || 'Farmer').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase())
 const route = useRoute()
 const canonicalPath = computed(() => user.value.farmType === 'crops' ? '/dashboard/crops' : ['livestock', 'poultry'].includes(user.value.farmType) ? '/dashboard/livestock' : '/dashboard')
 if (session.value?.user?.onboardingCompleted === true && route.path.replace(/\/$/, '') !== canonicalPath.value) await navigateTo(canonicalPath.value, { replace: true })
@@ -56,6 +58,7 @@ const nav = [
   { id: 'weather', label: 'Farm Watch', icon: CloudSun },
   { id: 'community', label: 'Nearby farmers', icon: Users },
   { id: 'profile', label: 'My farm', icon: UserRound },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 const income = computed(() => records.value.filter(r => r.category === 'income').reduce((sum, r) => sum + Number(r.amount || 0), 0))
 const expenses = computed(() => records.value.filter(r => r.category === 'expense').reduce((sum, r) => sum + Number(r.amount || 0), 0))
@@ -94,6 +97,12 @@ async function deleteRecord(record) {
   deleting.value = record.id; error.value = ''
   try { await $fetch(`/api/farm/records/${record.id}`, { method: 'DELETE' }); await refreshFarm(); feedback.value = 'Record deleted.' } catch (e) { error.value = apiMessage(e) } finally { deleting.value = '' }
 }
+async function profileSaved(savedUser) {
+  session.value = { ...session.value, user: savedUser }
+  await refreshSession()
+  if (sessionError.value) throw new Error('Your farm was saved, but your session could not be refreshed. Reload before continuing.')
+  if (route.path.replace(/\/$/, '') !== canonicalPath.value) await navigateTo(canonicalPath.value, { replace: true })
+}
 async function logout() {
   loggingOut.value = true; error.value = ''
   try { await $fetch('/api/auth/logout', { method: 'POST' }); clearNuxtData(); await navigateTo('/login') } catch (e) { error.value = apiMessage(e); loggingOut.value = false }
@@ -116,7 +125,7 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
       <NuxtLink to="/" class="mb-10 flex items-center gap-2.5 px-2 text-2xl font-extrabold tracking-tight text-[#066136]"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#066136] text-[#F9C23C]"><Sprout :size="24" aria-hidden="true" /></span>FarmBuddy<span class="-ml-2 text-[#C49C23]">.</span></NuxtLink>
       <p class="px-4 text-[10px] font-bold uppercase tracking-[0.2em] text-[#7C8D7A]">Your workspace</p>
       <nav class="mt-4 space-y-2" aria-label="Dashboard navigation"><button v-for="item in nav" :key="item.id" type="button" class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition" :class="section === item.id ? 'bg-[#066136] text-white shadow-md shadow-[#066136]/10' : 'text-[#62745F] hover:bg-[#EDF1E6]'" :aria-current="section === item.id ? 'page' : undefined" @click="chooseSection(item.id)"><component :is="item.icon" :size="19" aria-hidden="true" />{{ item.label }}<span v-if="item.id === 'reminders' && pending.length" class="ml-auto rounded-md bg-[#F9C23C] px-1.5 py-0.5 text-[10px] text-[#064B32]">{{ pending.length }}</span></button></nav>
-      <div class="mt-auto pt-8"><div class="rounded-2xl border border-[#DBE5CE] bg-[#EDF3E4] p-4"><Sprout :size="24" class="text-[#47874B]" aria-hidden="true" /><p class="mt-3 text-sm font-bold">Small steps. Strong roots.</p><p class="mt-2 text-xs leading-6 text-[#6B7B61]">Keep your farm story growing, one record at a time.</p></div><NuxtLink to="/" class="mt-5 flex items-center justify-between px-3 text-xs font-semibold text-[#668060]">Visit homepage <ArrowUpRight :size="15" aria-hidden="true" /></NuxtLink><button type="button" :disabled="loggingOut" class="mt-5 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-[#6A7765] hover:bg-[#EDF1E6] disabled:opacity-50" @click="logout"><LogOut :size="18" aria-hidden="true" />{{ loggingOut ? 'Signing out…' : 'Log out' }}</button></div>
+      <div class="mt-auto pt-8"><button type="button" class="flex w-full items-center gap-3 rounded-2xl border border-[#DCE5D8] bg-white p-3 text-left hover:bg-[#EDF1E6]" aria-label="Open My farm profile" @click="chooseSection('profile')"><span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F9C23C] text-sm font-bold text-[#193D2B]" aria-hidden="true">{{ farmerInitials }}</span><span class="min-w-0"><span class="block truncate text-sm font-bold">{{ user.name || 'Farmer' }}</span><span class="mt-1 block text-xs text-[#526C46]">Farm owner</span></span></button></div>
     </aside>
     <button v-if="mobileMenu" type="button" aria-label="Close sidebar" class="fixed inset-0 z-30 bg-[#092D20]/35 lg:hidden" @click="mobileMenu = false" />
     <div class="lg:pl-64">
@@ -143,6 +152,7 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
           <section v-if="section !== 'records'" class="dash-panel" aria-labelledby="reminders-title"><div class="flex items-center justify-between gap-4 border-b border-[#EDF0E8] p-5 sm:p-6"><div><h2 id="reminders-title" class="font-bold">{{ section === 'overview' ? 'On your farm calendar' : 'Your reminders' }}</h2><p class="mt-1 text-xs text-[#8B9981]">{{ pending.length }} tasks to look forward to.</p></div><button type="button" aria-label="Add reminder" class="rounded-lg border border-[#DDE5D4] p-2 text-[#066136] hover:bg-[#EDF2E5]" @click="openDialog('reminder')"><Plus :size="16" /></button></div><div v-if="!(section === 'overview' ? pending : reminders).length" class="px-6 py-12 text-center"><Bell :size="28" class="mx-auto text-[#91AB7A]" /><h3 class="mt-4 text-sm font-bold">A little planning goes a long way.</h3><p class="mt-2 text-xs leading-6 text-[#8A9880]">{{ tailored.tasks }} They’ll stay here until you mark them done.</p><button type="button" class="mt-5 text-xs font-bold text-[#066136]" @click="openDialog('reminder')">Create a reminder</button></div><ul v-else class="divide-y divide-[#EDF0E8]"><li v-for="reminder in (section === 'overview' ? pending.slice(0, 5) : [...reminders].sort((a,b) => a.date.localeCompare(b.date)))" :key="reminder.id" class="flex items-start gap-3 p-5"><button type="button" :aria-label="`${reminder.completed ? 'Mark incomplete' : 'Complete'}: ${reminder.title}`" :aria-pressed="reminder.completed" :disabled="!!pendingReminder" class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border disabled:opacity-50" :class="reminder.completed ? 'border-[#066136] bg-[#066136] text-white' : 'border-[#C8D6BD] bg-white'" @click="toggleReminder(reminder)"><Check v-if="reminder.completed" :size="13" /></button><div><p class="break-words text-sm font-semibold" :class="reminder.completed ? 'text-[#A0AC95] line-through' : ''">{{ reminder.title }}</p><p class="mt-1.5 text-[10px]" :class="!reminder.completed && reminder.date < today ? 'font-semibold text-[#AE693A]' : 'text-[#96A18D]'">{{ displayDate(reminder.date) }}{{ !reminder.completed && reminder.date < today ? ' · Overdue' : '' }}</p></div></li></ul><p class="border-t border-[#EDF0E8] px-5 py-3 text-[10px] leading-5 text-[#96A18D]">Reminders appear in your dashboard. Email and push notifications are not enabled.</p></section>
         </div>
 
+        <FarmSettings v-if="section === 'settings'" :user="user" :logging-out="loggingOut" :on-profile-saved="profileSaved" @logout="logout" />
         <FarmMarketplace v-if="section === 'marketplace'" :user="user" />
         <FarmTeam v-if="section === 'team'" :user="user" />
         <FarmBookkeeping v-if="section === 'bookkeeping'" :records="records" :deleting="deleting" @add-entry="addBookkeepingEntry" @delete-entry="deleteRecord" />
