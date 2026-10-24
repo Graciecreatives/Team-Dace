@@ -5,7 +5,7 @@ import FbTabs from './ui/FbTabs.vue'
 import { Plus, Download, Trash2, Wallet } from 'lucide-vue-next'
 import { amountToCents, entryMonth, filterEntries, summarizeEntries, monthlySummary, exportEntriesCsv } from '../utils/bookkeeping.js'
 
-const props = defineProps({ records: { type: Array, default: () => [] }, deleting: { type: String, default: '' }, userId: { type: [String, Number], default: null } })
+const props = defineProps({ busy: Boolean, records: { type: Array, default: () => [] }, deleting: { type: String, default: '' }, userId: { type: [String, Number], default: null } })
 const emit = defineEmits(['add-entry', 'delete-entry', 'edit-entry'])
 const month = ref('')
 const search = ref('')
@@ -56,7 +56,7 @@ function exportCsv() {
   <section class="bookkeeping" aria-labelledby="bookkeeping-heading">
     <header class="book-header">
       <div><p class="eyebrow">YOUR FARM'S CASH RECORD</p><h2 id="bookkeeping-heading">Cash bookkeeping</h2><p>Track money received and spent, one farm record at a time.</p></div>
-      <div class="actions"><FbButton @click="emit('add-entry', 'income')"><Plus :size="17" aria-hidden="true" /> Add income</FbButton><FbButton variant="secondary" class="gold" @click="emit('add-entry', 'expense')"><Plus :size="17" aria-hidden="true" /> Add expense</FbButton></div>
+      <div class="actions"><FbButton :disabled="busy" @click="emit('add-entry', 'income')"><Plus :size="17" aria-hidden="true" /> Add income</FbButton><FbButton :disabled="busy" variant="secondary" class="gold" @click="emit('add-entry', 'expense')"><Plus :size="17" aria-hidden="true" /> Add expense</FbButton></div>
     </header>
 
     <div class="period"><label for="bookkeeping-period">Summary period</label><select id="bookkeeping-period" v-model="month"><option value="">All time</option><option v-for="item in months" :key="item.month" :value="item.month">{{ monthLabel(item.month) }}</option></select><span>Dates grouped in UTC</span></div>
@@ -79,7 +79,7 @@ function exportCsv() {
       <template #ledger><div class="ledger">
       <div v-if="!entries.length" class="empty"><Wallet :size="30" aria-hidden="true" /><h4>{{ periodEntries.length ? 'No matching entries' : 'No cash entries yet for this period' }}</h4><p>{{ periodEntries.length ? 'Try a different search or category.' : 'Add income or an expense to start your cash record. Activity notes stay in farm records.' }}</p><button v-if="search || category || month" @click="search = ''; category = ''; month = ''">Clear filters</button></div>
       <ul v-else class="entries">
-        <li v-for="entry in entries" :key="entry.id"><div class="entry-main"><span class="badge" :class="entry.category">{{ entry.category === 'income' ? 'Income' : 'Expense' }}</span><h4>{{ entry.title }}</h4><p v-if="entry.note" class="note">{{ entry.note }}</p><time :datetime="entry.createdAt">{{ dateLabel(entry.createdAt) }} (UTC)</time></div><div class="entry-value"><strong>{{ money(amountToCents(entry.amount)) }}</strong><span v-if="entry.sourceId" class="text-xs">Linked workflow entry</span><template v-else><FbButton :disabled="Boolean(deleting)" :aria-label="`Edit ${entry.title}`" @click="emit('edit-entry', entry)">Edit</FbButton><button :disabled="Boolean(deleting)" :aria-label="`Delete ${entry.title}`" @click="emit('delete-entry', entry)"><Trash2 :size="16" aria-hidden="true" /><span>Delete</span></button></template></div></li>
+        <li v-for="entry in entries" :key="entry.id"><div class="entry-main"><span class="badge" :class="entry.category">{{ entry.category === 'income' ? 'Income' : 'Expense' }}</span><h4>{{ entry.title }}</h4><p v-if="entry.note" class="note">{{ entry.note }}</p><time :datetime="entry.createdAt">{{ dateLabel(entry.createdAt) }} (UTC)</time></div><div class="entry-value"><strong>{{ money(amountToCents(entry.amount)) }}</strong><span v-if="entry.sourceId" class="text-xs">Linked workflow entry</span><template v-else><FbButton :disabled="busy || Boolean(deleting)" :aria-label="`Edit ${entry.title}`" @click="emit('edit-entry', entry)">Edit</FbButton><button :disabled="busy || Boolean(deleting)" :aria-label="`Delete ${entry.title}`" @click="emit('delete-entry', entry)"><Trash2 :size="16" aria-hidden="true" /><span>Delete</span></button></template></div></li>
       </ul>
       </div></template>
       <template #reports>

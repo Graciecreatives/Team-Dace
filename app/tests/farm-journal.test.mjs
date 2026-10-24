@@ -10,9 +10,17 @@ function harness(initial = {}) {
   const emitted = [], scope = vue.effectScope()
   const dependencies = { ...helpers, computed: vue.computed, reactive: vue.reactive, ref: vue.ref, watch: vue.watch, nextTick: vue.nextTick, onMounted() {}, onUnmounted() {}, defineProps: () => props, defineEmits: () => (...args) => emitted.push(args) }
   const script = parse(source).descriptor.scriptSetup.content.replace(/^import .*$/gm, '')
-  const state = scope.run(() => new Function(...Object.keys(dependencies), script + '\nreturn { filters, records, reminders, counts, act, clearFilters, month, view, cells, selectDay, moveMonth, goToday, today, dayKey, calendar, dayCounts }')(...Object.values(dependencies)))
+  const state = scope.run(() => new Function(...Object.keys(dependencies), script + '\nreturn { money, filters, records, reminders, counts, act, clearFilters, month, view, cells, selectDay, moveMonth, goToday, today, dayKey, calendar, dayCounts }')(...Object.values(dependencies)))
   return { props, state, emitted, stop: () => scope.stop() }
 }
+test('journal financial labels preserve NGN and do not invent values', () => {
+  const h = harness()
+  assert.match(h.state.money(1500), /1,500\.00/)
+  assert.match(h.state.money(1500), /₦|NGN/)
+  assert.equal(h.state.money(null), 'Amount unavailable')
+  assert.equal(h.state.money('1500'), 'Amount unavailable')
+  h.stop()
+})
 test('actual SFC script, template and responsive scoped CSS compile', () => {
   const { descriptor, errors } = parse(source)
   assert.deepEqual(errors, [])
