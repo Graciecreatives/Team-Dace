@@ -79,11 +79,14 @@ test('failed refresh retains editor and distinguishes persisted changes from sav
 
 test('assistant modes keep review, provider consent, status and cleanup safeguards', () => {
   const source = sources.FarmAssistant
-  for (const label of ['Ask a question', 'Check a photo', 'Speak, review, then save', 'Connection details', 'Stop dictation']) assert.ok(source.includes(label))
+  for (const label of ['Ask a question', 'Discuss a photo', 'Speak, review, then save', 'Connection details', 'Stop dictation']) assert.ok(source.includes(label))
   assert.match(source, /photoMode\.value = true/)
   assert.match(source, /status\.value\?\.chat && status\.value\?\.photo/)
   assert.match(source, /if \(!status\.value\?\.chat \|\| busy\.value \|\| speaking\.value \|\| dictationActive\.value/)
-  assert.match(source, /image\.value && \(!consent\.value \|\| !status\.value\?\.photo\)/)
+  assert.match(source, /image\.value && !status\.value\?\.photo/)
+  assert.match(source, /Send shares this photo with OpenRouter/)
+  assert.doesNotMatch(source, /type="checkbox"/)
+  assert.match(source, /:aria-pressed="includeFarmContext"/)
   assert.match(source, /generation !== sessionGeneration/)
   assert.match(source, /mode="voice" @records-changed="emit\('records-changed'\)"/)
   assert.match(source, /releaseDictation\(\)\s+clearAudio\(\)/)

@@ -12,7 +12,7 @@ function harness() {
   const state = scope.run(() => new Function(...Object.keys(deps), script + '\nreturn { load, status, loading, error }')(...Object.values(deps)))
   return { state, props, calls, mount: () => mounted.forEach(fn => fn()), stop: () => { unmounted.forEach(fn => fn()); scope.stop() } }
 }
-const result = { configurationOnly: true, services: { text: true, photos: false, voice: true, weather: false } }
+const result = { configurationOnly: true, services: { text: true, photos: false, plantScan: false, animalScan: false, voice: true, weather: false } }
 test('service UI compiles and avoids credential inputs or automatic polling', () => {
   const { descriptor, errors } = parse(source)
   assert.deepEqual(errors, [])

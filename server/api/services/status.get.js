@@ -12,6 +12,8 @@ export default defineEventHandler(async event => {
     services: {
       text: ai.chat,
       photos: ai.photo,
+      plantScan: Boolean(process.env.PLANTNET_API_KEY?.trim()),
+      animalScan: Boolean(process.env.ROBOFLOW_API_KEY?.trim()) && process.env.FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN === 'true',
       voice: ai.voice,
       weather: Boolean(process.env.OPENWEATHER_API_KEY?.trim()),
     },

@@ -38,6 +38,16 @@ assert.equal(serviceStatus.response.headers.get('cache-control'), 'no-store')
 assert.equal(serviceStatus.value.configurationOnly, true)
 for (const value of Object.values(serviceStatus.value.services)) assert.equal(typeof value, 'boolean')
 assert.equal((await fetch(base + '/api/services/status')).status, 401)
+for (const [path, provider] of [['/api/plant-scan', 'Pl@ntNet'], ['/api/animal-scan', 'Roboflow']]) {
+  assert.equal((await fetch(base + path)).status, 401)
+  const status = await call(path)
+  assert.equal(status.response.headers.get('cache-control'), 'no-store')
+  assert.equal(status.value.provider, provider)
+  assert.equal(typeof status.value.configured, 'boolean')
+  // Exercise the actual Worker upload guard without sending photos to a provider.
+  const denied = await fetch(base + path, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ padding: 'x'.repeat(17000) }) })
+  assert.equal(denied.status, 401, 'Photo-sized request must reach auth, not fail at the old 16 KB guard')
+}
 const manual = (await call('/api/farm/records', 'POST', { title: 'Validation seed', category: 'expense', amount: 12.5, note: 'Disposable smoke entry' })).value.record
 assert.equal(manual.updatedAt, manual.createdAt)
 const revised = (await call(`/api/farm/records/${manual.id}`, 'PATCH', { title: 'Validation seed revised', amount: 15, expectedUpdatedAt: manual.updatedAt })).value.record

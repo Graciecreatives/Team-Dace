@@ -13,6 +13,8 @@ let controller
 const services = computed(() => [
   { id: 'text', title: 'AI conversations', provider: 'OpenRouter', icon: Bot },
   { id: 'photos', title: 'Photo guidance', provider: 'Compatible vision model', icon: Camera },
+  { id: 'plantScan', title: 'Specialist plant scanner', provider: 'Pl@ntNet image recognition', icon: Camera },
+  { id: 'animalScan', title: 'Experimental cattle scanner', provider: 'Roboflow skin-lesion screening', icon: Camera },
   { id: 'voice', title: 'Spoken replies', provider: 'YarnGPT', icon: Volume2 },
   { id: 'weather', title: 'Weather advice', provider: 'OpenWeather', icon: CloudSun },
 ])

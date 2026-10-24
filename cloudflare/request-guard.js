@@ -1,7 +1,8 @@
 export async function boundedWorkerRequest(request) {
   if (['GET', 'HEAD'].includes(request.method) || !request.body) return request
   const path = new URL(request.url).pathname.replace(/\/$/, '')
-  const limit = path === '/api/product-images' ? 8 * 1024 * 1024 : path.startsWith('/api/assistant/') ? 4 * 1024 * 1024 + 100000 : 16384
+  const imageScan = ['/api/plant-scan', '/api/animal-scan'].includes(path)
+  const limit = path === '/api/product-images' ? 8 * 1024 * 1024 : imageScan ? 4 * 1024 * 1024 + 4096 : path.startsWith('/api/assistant/') ? 4 * 1024 * 1024 + 100000 : 16384
   const error = (status, statusMessage) => Response.json({ error: true, statusCode: status, statusMessage }, { status, headers: { 'Cache-Control': 'no-store' } })
   const length = request.headers.get('content-length')
   if (length !== null && (!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)))) return error(400, 'Invalid content length')

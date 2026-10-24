@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { Sprout, Plus, Camera, Mic, ArrowUpRight, X, Leaf, Stethoscope, Volume2, MessageCircle, PlugZap } from 'lucide-vue-next'
+import { Sprout, Plus, Camera, Mic, ArrowUpRight, X, Leaf, Stethoscope, Volume2, MessageCircle, PlugZap, Beef } from 'lucide-vue-next'
+import FarmScan from './FarmScan.vue'
+import FarmAnimalScan from './FarmAnimalScan.vue'
 const props = defineProps({ user: { type: Object, required: true } })
 const emit = defineEmits(['records-changed'])
 const workspace = ref('chat')
@@ -17,6 +19,15 @@ async function choosePhotoMode() {
   await nextTick()
   if (status.value?.chat && status.value?.photo) picker.value?.click()
   else draft.value?.focus()
+}
+async function askAboutAnimal(value) {
+  if (busy.value || speaking.value) return
+  clearSession()
+  changeWorkspace('chat')
+  task.value = 'animal-health'
+  question.value = String(value || 'What should I check about visible changes on my cow?').slice(0, 4000)
+  await nextTick()
+  draft.value?.focus()
 }
 const status = ref(null)
 const checkingStatus = ref(false)
@@ -41,10 +52,9 @@ const question = ref('')
 const task = ref(props.user.farmType === 'livestock' ? 'animal-health' : props.user.farmType === 'crops' ? 'plant-health' : 'chat')
 const image = ref(null)
 const filename = ref('')
-const consent = ref(false)
 const includeFarmContext = ref(false)
 function changeFarmContext(event) {
-  const enabled = event.target.checked
+  const enabled = typeof event === 'boolean' ? event : event.target.checked
   clearSession()
   includeFarmContext.value = enabled
 }
@@ -57,7 +67,6 @@ const speaking = ref(false)
 const error = ref('')
 const audioUrl = ref('')
 const picker = ref(null)
-const thread = ref(null)
 const draft = ref(null)
 const farmLabel = computed(() => props.user.farmType === 'livestock' ? 'Livestock farm' : props.user.farmType === 'crops' ? 'Crop farm' : 'Mixed farm')
 const starters = [
@@ -71,12 +80,6 @@ function fillPrompt(starter) {
   question.value = starter.text
   nextTick(() => draft.value?.focus())
 }
-async function scrollToLatest() {
-  await nextTick()
-  if (thread.value) thread.value.scrollTop = thread.value.scrollHeight
-}
-watch(() => messages.value[messages.value.length - 1], scrollToLatest)
-watch(busy, scrollToLatest)
 const dictationSupported = ref(false)
 const listening = ref(false)
 const dictationPending = ref(false)
@@ -183,7 +186,7 @@ function startDictation() {
   }
 }
 function clearAudio() { if (audioUrl.value) URL.revokeObjectURL(audioUrl.value); audioUrl.value = '' }
-function removeImage() { readGeneration++; image.value = null; filename.value = ''; consent.value = false; if (picker.value) picker.value.value = '' }
+function removeImage() { readGeneration++; image.value = null; filename.value = ''; if (picker.value) picker.value.value = '' }
 async function chooseImage(event) {
   const file = event.target.files?.[0]
   removeImage()
@@ -196,7 +199,7 @@ async function chooseImage(event) {
   reader.readAsDataURL(file)
 }
 async function send() {
-  if (!status.value?.chat || busy.value || speaking.value || dictationActive.value || !question.value.trim() || (image.value && (!consent.value || !status.value?.photo))) return
+  if (!status.value?.chat || busy.value || speaking.value || dictationActive.value || !question.value.trim() || (image.value && !status.value?.photo)) return
   busy.value = true
   error.value = ''
   controller = new AbortController()
@@ -244,9 +247,13 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
 
     <nav class="workspace-switch" aria-label="FarmBuddyAI tools">
       <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'chat' && !photoMode" @click="changeWorkspace('chat')"><MessageCircle :size="22" aria-hidden="true" /><span><strong>Ask a question</strong><small>Work through your next step</small></span></button>
-      <button type="button" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Check a photo</strong><small>Show what you have noticed</small></span></button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Discuss a photo</strong><small>General AI guidance</small></span></button>
       <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="22" aria-hidden="true" /><span><strong>Voice to farm record</strong><small>Speak, review, then save</small></span></button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'scan'" @click="changeWorkspace('scan')"><Leaf :size="22" aria-hidden="true" /><span><strong>Scan a plant</strong><small>Specialist image recognition</small></span></button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'animal-scan'" @click="changeWorkspace('animal-scan')"><Beef :size="22" aria-hidden="true" /><span><strong>Check a cow photo</strong><small>Experimental visual screening</small></span></button>
     </nav>
+    <FarmAnimalScan v-if="workspace === 'animal-scan'" :user="user" @ask-ai="askAboutAnimal" />
+    <FarmScan v-if="workspace === 'scan'" :user="user" />
     <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
     <div v-show="workspace === 'chat'" class="companion-body">
       <details class="connection-details">
@@ -274,7 +281,8 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         </div>
       </div>
 
-      <ol v-else ref="thread" class="conversation" aria-label="Conversation" aria-live="polite" tabindex="0">
+      <nav v-if="messages.length" class="thread-navigation" aria-label="Conversation navigation"><a href="#assistant-question">Write a reply ↓</a><a href="#farm-assistant-title">Back to conversation start ↑</a></nav>
+      <ol v-if="messages.length" class="conversation" aria-label="Conversation" aria-live="polite">
         <li v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
           <p class="message-author">{{ message.role === 'user' ? 'You' : `FarmBuddyAI · ${message.model}` }}</p>
           <p class="message-content">{{ message.content }}</p>
@@ -288,12 +296,12 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
 
       <div class="composer-area">
         <p v-if="photoMode" class="photo-mode-hint"><Camera :size="18" aria-hidden="true" />{{ status?.photo ? 'Add a clear photo, then describe what changed. You review sharing before sending.' : 'Photo analysis is not verified yet. You can describe what you see instead.' }}</p>
-        <div class="farm-context-control"><label><input :checked="includeFarmContext" type="checkbox" :disabled="busy || speaking" @change="changeFarmContext"> Use my farm records for this conversation</label><p>Shares a limited snapshot with OpenRouter when you send. Changing this starts a new conversation.</p><details><summary>What is shared when this is on?</summary><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to OpenRouter and its routed provider when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></details></div>
+        <div class="farm-context-control"><button type="button" :aria-pressed="includeFarmContext" :disabled="busy || speaking" @click="changeFarmContext(!includeFarmContext)">{{ includeFarmContext ? '✓ Using farm records' : '+ Use farm records' }}</button><details><summary>Sharing details</summary><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to OpenRouter and its routed provider when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></details></div>
         <form class="composer" @submit.prevent="send">
           <div class="composer-heading"><label for="assistant-task">Help with</label><select id="assistant-task" v-model="task" :disabled="busy"><option value="chat">General farming</option><option value="plant-health">Plant health</option><option value="animal-health">Animal health</option><option value="identify-crop">Identify a crop</option></select><span>{{ question.length.toLocaleString() }} / 4,000</span></div>
           <label for="assistant-question" class="sr-only">Your question</label>
           <textarea id="assistant-question" ref="draft" v-model="question" maxlength="4000" rows="3" required :disabled="busy" placeholder="Tell me what you’ve noticed. What crop or animal, and for how long?" />
-          <div v-if="image" class="photo-review"><div class="photo-caption"><img :src="image" alt="Selected farm photo preview"><span>{{ filename }}</span><button type="button" class="icon-button" aria-label="Remove photo" :disabled="busy" @click="removeImage"><X :size="17" /></button></div><label><input v-model="consent" type="checkbox" :disabled="busy"> I consent to send this photo to OpenRouter and its routed model provider only when I press Send. Avoid people or private details.</label></div>
+          <div v-if="image" class="photo-review"><div class="photo-caption"><img :src="image" alt="Selected farm photo preview"><span>{{ filename }}</span><button type="button" class="icon-button" aria-label="Remove photo" :disabled="busy" @click="removeImage"><X :size="17" /></button></div><p>Send shares this photo with OpenRouter.</p></div>
           <div class="composer-actions">
             <div class="input-tools">
               <input id="assistant-photo" ref="picker" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy || !status?.chat || !status?.photo" @change="chooseImage">
@@ -302,7 +310,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
               <template v-if="dictationSupported"><label for="assistant-dictation-language" class="sr-only">Dictation language</label><select id="assistant-dictation-language" v-model="dictationLanguage" :disabled="dictationActive || busy || speaking"><option v-for="language in dictationLanguages" :key="language.code" :value="language.code">{{ language.label }}</option></select></template>
               <span v-else class="typing-fallback">Type your question</span>
             </div>
-            <button type="submit" class="send-button" :aria-label="image ? 'Send question and photo' : 'Send question'" :disabled="busy || speaking || dictationActive || !status?.chat || !question.trim() || Boolean(image && (!consent || !status?.photo))"><span>Send</span><ArrowUpRight :size="19" /></button>
+            <button type="submit" class="send-button" :aria-label="image ? 'Send question and photo' : 'Send question'" :disabled="busy || speaking || dictationActive || !status?.chat || !question.trim() || Boolean(image && !status?.photo)"><span>Send</span><ArrowUpRight :size="19" /></button>
           </div>
         </form>
         <div v-if="dictationActive" class="dictation-session" :class="{ 'is-listening': listening }">
@@ -316,28 +324,29 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
         <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
-        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
+        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared with OpenRouter only when you press Send.</p></div></details>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.farm-context-control summary { font-size:12px; display:flex; align-items:center; text-decoration:underline; }
+.farm-context-control>button{min-height:44px;padding:10px 14px;border:1px solid #cbdac2;border-radius:12px;background:#fff;color:#164e32;font-weight:700}.farm-context-control>button[aria-pressed=true]{background:#e5efd9;border-color:#638258}.farm-context-control summary { min-height:44px;font-size:12px; display:flex; align-items:center; text-decoration:underline; cursor:pointer; }
 .farm-context-control input { width:18px; height:18px; flex-shrink:0; }
-.farm-context-control{max-width:760px;margin:0 auto 12px;padding:12px 16px;border:1px solid #d8e1cd;border-radius:14px;background:#ffffffa8;font-size:12px;line-height:1.7}.farm-context-control label{display:flex;gap:10px;align-items:center;font-weight:700;color:#164e32}.farm-context-control p{margin-top:6px;color:#63765d}.farm-context-control input{accent-color:#066136}.knowledge-sources{font-size:12px;line-height:1.7;margin-top:10px;overflow-wrap:anywhere}.knowledge-sources summary{cursor:pointer;font-weight:700}.knowledge-sources a{color:#066136;text-decoration:underline}.knowledge-sources ul{padding-left:18px;list-style:disc}
-.workspace-switch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:18px 26px;border-bottom:1px solid #375c3510;background:#fff}.workspace-switch button{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid #d8e1cd;border-radius:14px;font-size:13px;text-align:left;background:#f6f8f2;min-width:0}.workspace-switch strong,.workspace-switch small{display:block}.workspace-switch strong{font-weight:700}.workspace-switch small{margin-top:5px;font-size:11px;line-height:1.5}.workspace-switch button[aria-pressed=true]{background:#066136;color:#fff;border-color:#066136;box-shadow:inset 0 -4px #F9C23C}.workspace-switch svg{flex-shrink:0}.voice-workspace{padding:clamp(12px,3vw,28px);min-width:0}.voice-intro{max-width:800px;font-size:13px;line-height:1.8;margin-bottom:16px}.voice-workspace :deep(.farm-notes){max-width:none}
+.farm-context-control{max-width:760px;margin:0 auto 12px;padding:0 4px;border:0;border-radius:0;background:transparent;font-size:12px;line-height:1.7}.farm-context-control label{display:flex;gap:10px;align-items:center;font-weight:700;color:#164e32}.farm-context-control p{margin-top:6px;color:#63765d}.farm-context-control input{accent-color:#066136}.knowledge-sources{font-size:12px;line-height:1.7;margin-top:10px;overflow-wrap:anywhere}.knowledge-sources summary{cursor:pointer;font-weight:700}.knowledge-sources a{color:#066136;text-decoration:underline}.knowledge-sources ul{padding-left:18px;list-style:disc}
+.workspace-switch{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;padding:18px 26px;border-bottom:1px solid #375c3510;background:#fff}.workspace-switch button{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid #d8e1cd;border-radius:14px;font-size:13px;text-align:left;background:#f6f8f2;min-width:0}.workspace-switch strong,.workspace-switch small{display:block}.workspace-switch strong{font-weight:700}.workspace-switch small{margin-top:5px;font-size:11px;line-height:1.5}.workspace-switch button[aria-pressed=true]{background:#066136;color:#fff;border-color:#066136;box-shadow:inset 0 -4px #F9C23C}.workspace-switch svg{flex-shrink:0}.voice-workspace{padding:clamp(12px,3vw,28px);min-width:0}.voice-intro{max-width:800px;font-size:13px;line-height:1.8;margin-bottom:16px}.voice-workspace :deep(.farm-notes){max-width:none}
 .farm-companion {
   position: relative;
   isolation: isolate;
   display: flex;
   flex-direction: column;
   min-height: min(740px, calc(100dvh - 140px));
+  min-width: 0;
   color: #294638;
   background: #f3f7ef;
   border: 1px solid #dfe7d6;
   border-radius: 24px;
-  overflow: hidden;
+  overflow: clip;
 }
 .farm-companion::before, .farm-companion::after {
   content: none;
@@ -414,7 +423,17 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .photo-caption span { overflow-wrap: anywhere; flex: 1; }
 .photo-review label { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
 .photo-review input { margin-top: 2px; }
-.conversation { flex: 1; width: 100%; max-width: 760px; min-height: 180px; max-height: clamp(220px, 45dvh, 540px); overflow-y: auto; overscroll-behavior: contain; margin: 12px auto 20px; padding: 8px 6px; list-style: none; scrollbar-width: thin; }
+/* The dashboard/document owns scrolling. Long replies expand naturally, never inside a second viewport. */
+.conversation { flex: 1; width: 100%; max-width: 760px; min-width: 0; margin: 12px auto 20px; padding: 8px 0; list-style: none; }
+.thread-navigation { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; width:100%; max-width:760px; margin:12px auto 0; font-size:12px; }
+.thread-navigation a { display:inline-flex; align-items:center; min-height:44px; color:#066136; text-decoration:underline; text-underline-offset:4px; }
+#assistant-question, #farm-assistant-title { scroll-margin-block: 100px; }
+.farm-companion, .farm-companion * { box-sizing:border-box; }
+.farm-companion button { transition:background-color 160ms ease-out, border-color 160ms ease-out, transform 160ms ease-out; }
+.farm-companion button:active:not(:disabled) { transform:scale(.98); }
+.farm-companion a:focus-visible { outline:2px solid #497b40; outline-offset:3px; }
+.message { animation:assistant-message-in 180ms ease-out; }
+@keyframes assistant-message-in { from { opacity:.7; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
 .message { width: fit-content; max-width: 91%; margin: 0 0 18px; padding: 16px 20px; background: #ffffffb8; border: 1px solid #dfe6d8; border-radius: 17px 17px 17px 4px; }
 .message.user { margin-left: auto; background: #e0ead6; border-color: #d4dfc8; border-radius: 17px 17px 4px 17px; }
 .message-author { font-size: 10px; color: #64775c; font-weight: 600; margin-bottom: 7px; }
@@ -433,7 +452,7 @@ button, summary, .composer select { min-height:44px; }
 .farm-context-control label { min-height:44px; }
 .dictation-session.is-listening { border:2px solid #066136; }
 @media (max-width: 640px) {
-  .workspace-switch { padding:12px; gap:6px; }
+  .workspace-switch { grid-template-columns:repeat(2,minmax(0,1fr)); padding:12px; gap:6px; }
   .workspace-switch button { flex-direction:column; align-items:flex-start; padding:12px 8px; gap:8px; font-size:12px; }
   .workspace-switch small { display:none; }
   .connection-details summary { flex-wrap:wrap; }

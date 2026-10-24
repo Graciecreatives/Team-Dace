@@ -37,6 +37,15 @@ test('Worker guard bounds streamed bodies before Nitro and preserves request ori
   assert.ok(photo instanceof Request)
   const assistant = await boundedWorkerRequest(new Request('https://farm.example/api/assistant/chat', { method: 'POST', body: new Uint8Array(17000) }))
   assert.ok(assistant instanceof Request)
+  for (const endpoint of ['plant-scan', 'animal-scan']) {
+    const scan = await boundedWorkerRequest(new Request(`https://farm.example/api/${endpoint}`, { method: 'POST', body: new Uint8Array(17000) }))
+    assert.ok(scan instanceof Request, 'Image scans must not inherit the 16 KB form limit')
+    const fullBudget = await boundedWorkerRequest(new Request(`https://farm.example/api/${endpoint}`, { method: 'POST', body: new Uint8Array(4 * 1024 * 1024 + 4096) }))
+    assert.ok(fullBudget instanceof Request)
+    const tooLarge = await boundedWorkerRequest(new Request(`https://farm.example/api/${endpoint}`, { method: 'POST', body: new Uint8Array(4 * 1024 * 1024 + 4097) }))
+    assert.equal(tooLarge.status, 413)
+    assert.equal(tooLarge.headers.get('cache-control'), 'no-store')
+  }
   const advertised = await boundedWorkerRequest(new Request('https://farm.example/api/auth/login', { method: 'POST', headers: { 'Content-Length': '20000' }, body: 'small' }))
   assert.equal(advertised.status, 413)
 })

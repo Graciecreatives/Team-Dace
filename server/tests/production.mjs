@@ -17,7 +17,7 @@ let child
 let logs = ''
 async function start() {
   child = spawn(process.execPath, ['.output/server/index.mjs'], {
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), FARMBUDDY_DATA_FILE: join(directory, 'store.json'), FARMBUDDY_UPLOAD_DIR: join(directory, 'uploads'), FARMBUDDY_AUTH: 'local', FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local', OPENROUTER_API_KEY: '', OPENAI_API_KEY: '', YARNGPT_API_KEY: '' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), FARMBUDDY_DATA_FILE: join(directory, 'store.json'), FARMBUDDY_UPLOAD_DIR: join(directory, 'uploads'), FARMBUDDY_AUTH: 'local', FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local', OPENROUTER_API_KEY: '', OPENAI_API_KEY: '', PLANTNET_API_KEY: '', ROBOFLOW_API_KEY: '', FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN: 'false', YARNGPT_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   child.stdout.on('data', data => { logs += data })
@@ -91,6 +91,13 @@ try {
   assert.match(await storefrontPage.text(), /Fresh from Restart Farm/, 'Saved headline renders in the packaged storefront')
   assert.equal((await fetch(base + '/api/farm-team')).status, 401)
   assert.equal((await fetch(base + '/api/marketplace')).status, 401)
+  assert.equal((await fetch(base + '/api/plant-scan')).status, 401)
+  assert.deepEqual((await call('/api/plant-scan', 'GET', undefined, registered.cookie)).value, { configured: false, provider: 'Pl@ntNet', animalSupported: false })
+  assert.equal((await fetch(base + '/api/animal-scan')).status, 401)
+  const animalStatus = (await call('/api/animal-scan', 'GET', undefined, registered.cookie)).value
+  assert.equal(animalStatus.configured, false)
+  assert.equal(animalStatus.experimental, true)
+  assert.equal(animalStatus.animal, 'cattle')
   assert.deepEqual((await call('/api/assistant/status', 'GET', undefined, registered.cookie)).value, { chat: false, photo: false, voice: false })
   assert.equal((await call('/api/community', 'GET', undefined, registered.cookie)).value.profile.visible, false)
   assert.equal((await call('/api/community', 'POST', { action: 'search', latitude: 7.4, longitude: 3.9 }, registered.cookie)).value.farmers.length, 0)
