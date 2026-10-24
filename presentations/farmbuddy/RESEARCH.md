@@ -1,6 +1,6 @@
 # Research and claim register
 
-Reviewed October 24, 2026. This is a product overview, not an investor forecast or evidence of farmer outcomes.
+Reviewed October 24, 2026. This is a product overview, not an investor forecast or evidence of farmer outcomes. The revised positioning, **Smart AI farming. Made simple.**, describes the product category, not autonomous farming. Crop disease checks refer to visual suggestions from the configured specialist service, not confirmed diagnoses. The AI helper provides guidance and does not automatically change farm records.
 
 ## Presentation research
 

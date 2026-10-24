@@ -1,6 +1,6 @@
 # FarmBuddy product presentation
 
-A 12-slide product overview in FarmBuddy's forest-green, yellow and cream design. Intended for a short product introduction or demonstration, not a financial investment prospectus.
+A 12-slide product overview: **Smart AI farming. Made simple.** Uses plain English, large visuals and FarmBuddy's forest-green, yellow and cream design. Covers farm planning, tasks, sales, plant identification, possible crop disease checks and the AI farm helper. Intended for a short product introduction or demonstration, not a financial investment prospectus.
 
 ## Present
 

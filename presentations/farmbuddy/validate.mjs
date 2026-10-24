@@ -17,6 +17,10 @@ export async function validate() {
   const html = contents.get('index.html') || '';
   const sections = [...html.matchAll(/<section\b[^>]*>/gi)].filter(([tag]) => /\bclass\s*=\s*["'][^"']*\bslide\b[^"']*["']/i.test(tag));
   if (contents.has('index.html') && sections.length !== 12) fail(`Expected 12 section.slide elements, found ${sections.length}.`);
+  const slideCopy = number => (html.split(`id="slide-${number}"`)[1] || '').split('</section>')[0].replace(/<[^>]+>/g, ' ');
+  if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(1))) fail('The cover must clearly introduce AI farming.');
+  if (contents.has('index.html') && !/disease/i.test(slideCopy(9))) fail('The crop-check slide must explicitly mention disease checks.');
+  if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(10))) fail('The assistant slide must clearly identify the AI helper.');
   const css = contents.get('deck.css') || '';
   if (contents.has('deck.css') && (!/@media\s+print\b/i.test(css) || !/@page\b/i.test(css))) fail('deck.css must define @media print and @page for PDF export.');
   if (contents.has('deck.css') && !/size\s*:\s*1600px\s+900px/i.test(css)) fail('Print @page size must be 1600px 900px.');

@@ -18,3 +18,12 @@ Twelve 1600 × 900 slides, original SVG artwork, editable HTML/CSS/JavaScript, s
 - Research and product claim boundaries are recorded in RESEARCH.md. No invented market metrics, users, diagnostic accuracy or online payment processing claims were added.
 
 The PDF is a static shareable presentation. The HTML is the editable and keyboard-navigable version. Neither is a PowerPoint file.
+
+## Plain-English revision
+
+- Cover now says “Smart AI farming. Made simple.” and immediately names planning, crop checks, AI questions and sales.
+- Crop-check slide explicitly names plant identification and crop disease checks, with possible-match wording rather than a confirmed diagnosis claim.
+- Assistant slide says “Your AI farm helper.” and explains questions, photos and voice in simple language.
+- Removed jargon such as taxonomy, replay explicitly and connected base from the presentation copy.
+- Root visually reviewed the revised cover, crop-check slide and all twelve regenerated PDF pages. Browser geometry checks found no text, image or feature labels crossing the slide footer.
+- Final export passed the twelve-page check. Validation now guards explicit AI cover, disease-check and AI helper messaging.
