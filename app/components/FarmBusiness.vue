@@ -1,9 +1,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import FbTabs from './ui/FbTabs.vue'
 import FbButton from './ui/FbButton.vue'
 import FbPageHeader from './ui/FbPageHeader.vue'
-import FbDialog from './ui/FbDialog.vue'
 import { Sprout, Package, Receipt, Banknote, Plus, Truck, Printer } from 'lucide-vue-next'
 const props = defineProps({ state: { type: Object, required: true }, busy: Boolean, commandError: { type: String, default: '' } })
 const emit = defineEmits(['command'])
@@ -22,11 +20,37 @@ const error = ref('')
 const invoice = ref(null)
 const activeTab = ref('harvest')
 const editorOpen = ref(false)
-const deliveryEditor = ref('')
-function openEditor(tab) {
+const editorRegion = ref(null)
+const editorTrigger = ref(null)
+const detailsOpen = reactive({ harvest: false, sale: false, expense: false })
+const activeDraft = computed(() => ({ harvest, sale, expense })[activeTab.value])
+const choicesReady = computed(() => seasons.value.some(row => row.id === activeDraft.value.seasonId) && (activeTab.value === 'expense' || stock.value.some(row => row.id === activeDraft.value.inventoryId)))
+async function continueEditor() {
+  if (props.busy || !choicesReady.value) return
+  detailsOpen[activeTab.value] = true
+  await nextTick()
+  editorRegion.value?.querySelector('input')?.focus()
+}
+async function backToChoices() {
   if (props.busy) return
+  detailsOpen[activeTab.value] = false
+  await nextTick()
+  editorRegion.value?.focus()
+}
+async function closeEditor() {
+  if (props.busy) return
+  editorOpen.value = false
+  await nextTick()
+  editorTrigger.value?.focus()
+}
+const deliveryEditor = ref('')
+async function openEditor(tab, trigger) {
+  if (props.busy) return
+  if (trigger) editorTrigger.value = trigger.currentTarget || null
   activeTab.value = tab
   editorOpen.value = true
+  await nextTick()
+  editorRegion.value?.focus()
 }
 const harvests = computed(() => (props.state.planning?.events || []).filter(event => event.type === 'harvest'))
 const tabs = [{ value: 'harvest', label: 'Harvest' }, { value: 'sale', label: 'Sales' }, { value: 'expense', label: 'Expenses' }]
@@ -38,9 +62,11 @@ watch(() => props.state.farm?.id, () => {
   Object.assign(sale, emptySale())
   Object.assign(expense, emptyExpense())
   for (const key of Object.keys(delivery)) delete delivery[key]
+  Object.assign(detailsOpen, { harvest: false, sale: false, expense: false })
   error.value = ''
   invoice.value = null
   editorOpen.value = false
+  editorTrigger.value = null
   deliveryEditor.value = ''
 })
 watch(() => props.state.lastCommandId, (id, previous) => {
@@ -56,7 +82,11 @@ watch(() => props.state.lastCommandId, (id, previous) => {
     } else {
       Object.assign(submitted.draft, submitted.empty())
       const completedTab = { 'harvest.create': 'harvest', 'orders.create': 'sale', 'expense.create': 'expense' }[result.action]
-      if (activeTab.value === completedTab) editorOpen.value = false
+      detailsOpen[completedTab] = false
+      if (activeTab.value === completedTab) {
+        editorOpen.value = false
+        nextTick(() => editorTrigger.value?.focus())
+      }
     }
   }
   error.value = ''
@@ -96,33 +126,32 @@ async function print(row) {
       <p v-if="error || commandError" role="alert" class="error">{{ error || commandError }}</p>
       <p v-if="!seasons.length || !stock.length">Create a season in Production and a stock item in Inventory before recording harvests or sales.</p>
       <ol class="farm-flow" aria-label="Harvest to cash workflow">
-        <li><span class="flow-icon"><Sprout aria-hidden="true" /></span><h3>Harvest</h3><p>{{ harvests.length }} recorded harvests</p><span>Record a harvest to add physical stock.</span><FbButton :disabled="busy" @click="openEditor('harvest')"><Plus :size="18" aria-hidden="true" />Record harvest</FbButton></li>
+        <li><span class="flow-icon"><Sprout aria-hidden="true" /></span><h3>Harvest</h3><p>{{ harvests.length }} recorded harvests</p><span>Record a harvest to add physical stock.</span><FbButton :disabled="busy" @click="openEditor('harvest', $event)"><Plus :size="18" aria-hidden="true" />Record harvest</FbButton></li>
         <li><span class="flow-icon"><Package aria-hidden="true" /></span><h3>Stock on hand</h3><p>{{ stock.length }} stock items</p><span>Different units stay separate.</span><ul class="flow-stock"><li v-for="item in stock" :key="item.id"><span>{{ item.name }}</span><b>{{ item.quantity }} {{ item.unit }}</b></li></ul><p v-if="!stock.length">Add stock in Inventory to get started.</p></li>
-        <li><span class="flow-icon"><Receipt aria-hidden="true" /></span><h3>Manual sale</h3><p>{{ business.orders.filter(order => order.status === 'draft').length }} drafts awaiting cash</p><span>A draft does not reserve or reduce stock.</span><FbButton :disabled="busy" @click="openEditor('sale')"><Plus :size="18" aria-hidden="true" />Draft sale</FbButton></li>
-        <li><span class="flow-icon"><Banknote aria-hidden="true" /></span><h3>Cash recorded</h3><p>{{ format(business.reports.overall.incomeMinor) }}</p><span>Recorded income. Confirming a sale reduces stock once.</span><FbButton variant="secondary" :disabled="busy" @click="openEditor('expense')"><Plus :size="18" aria-hidden="true" />Record expense</FbButton></li>
+        <li><span class="flow-icon"><Receipt aria-hidden="true" /></span><h3>Manual sale</h3><p>{{ business.orders.filter(order => order.status === 'draft').length }} drafts awaiting cash</p><span>A draft does not reserve or reduce stock.</span><FbButton :disabled="busy" @click="openEditor('sale', $event)"><Plus :size="18" aria-hidden="true" />Draft sale</FbButton></li>
+        <li><span class="flow-icon"><Banknote aria-hidden="true" /></span><h3>Cash recorded</h3><p>{{ format(business.reports.overall.incomeMinor) }}</p><span>Recorded income. Confirming a sale reduces stock once.</span><FbButton variant="secondary" :disabled="busy" @click="openEditor('expense', $event)"><Plus :size="18" aria-hidden="true" />Record expense</FbButton></li>
       </ol>
-      <FbDialog v-model:open="editorOpen" :busy="busy" :title="activeTab === 'harvest' ? 'Record a harvest' : activeTab === 'sale' ? 'Draft a cash sale' : 'Record a season expense'" description="Your draft stays here until its matching command succeeds. Closing this editor keeps your entered details.">
+      <Transition name="editor"><section v-if="editorOpen" ref="editorRegion" class="inline-editor" tabindex="-1" aria-label="Business record editor"><header class="section-heading"><h3>{{ activeTab === 'harvest' ? 'Record a harvest' : activeTab === 'sale' ? 'Draft a cash sale' : 'Record a season expense' }}</h3><FbButton variant="secondary" :disabled="busy" @click="closeEditor">Close, keep draft</FbButton></header><p>Your draft stays here until its matching command succeeds. Closing keeps your entered details.</p>
+      <fieldset :disabled="busy" class="editor-fields"><legend class="sr-only">Business record</legend><div class="record-choices" role="group" aria-label="Business record type"><button v-for="item in tabs" :key="item.value" type="button" :aria-pressed="activeTab === item.value" @click="openEditor(item.value)">{{ item.label }}</button></div>
+      <div v-if="!detailsOpen[activeTab]" class="record-picker"><h4>Which season?</h4><div v-if="seasons.length <= 6" class="choice-grid" role="group" aria-label="Choose season"><button v-for="s in seasons" :key="s.id" type="button" :aria-pressed="activeDraft.seasonId === s.id" @click="activeDraft.seasonId = s.id"><Sprout aria-hidden="true" :size="20" /><strong>{{ s.name }}</strong><span>{{ s.kind === 'livestock' ? 'Animal group' : 'Crop cycle' }}</span></button></div><label v-else>Season<select v-model="activeDraft.seasonId"><option disabled value="">Choose season</option><option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
+      <template v-if="activeTab !== 'expense' && activeDraft.seasonId"><h4>{{ activeTab === 'harvest' ? 'Where will the harvest go?' : 'What are you selling?' }}</h4><div v-if="stock.length <= 6" class="choice-grid" role="group" aria-label="Choose stock"><button v-for="s in stock" :key="s.id" type="button" :aria-pressed="activeDraft.inventoryId === s.id" @click="activeDraft.inventoryId = s.id"><Package aria-hidden="true" :size="20" /><strong>{{ s.name }}</strong><span>{{ s.quantity }} {{ s.unit }} on hand</span></button></div><label v-else>Stock item<select v-model="activeDraft.inventoryId"><option disabled value="">Choose stock</option><option v-for="s in stock" :key="s.id" :value="s.id">{{ s.name }} ({{ s.quantity }} {{ s.unit }})</option></select></label></template>
+      <FbButton :disabled="busy || !choicesReady" @click="continueEditor">Continue to {{ activeTab === 'expense' ? 'expense details' : 'quantity and date' }}</FbButton></div><div v-else><FbButton variant="secondary" :disabled="busy" @click="backToChoices">Back to season and stock choices</FbButton><p class="chosen-context">{{ seasons.find(s => s.id === activeDraft.seasonId)?.name }}<template v-if="activeTab !== 'expense'"> / {{ stock.find(s => s.id === activeDraft.inventoryId)?.name }}</template></p>
       <div class="forms">
       <p v-if="error || commandError" role="alert" class="error">{{ error || commandError }} Your entered details have been kept.</p>
-      <FbTabs v-model="activeTab" :items="tabs" label="Business records">
-        <template #harvest>
+      <template v-if="activeTab === 'harvest'">
         <form @submit.prevent="send('harvest.create', harvest)">
           <h3>Add harvest to stock</h3>
-          <label>Season<select v-model="harvest.seasonId" required><option disabled value="">Choose season</option><option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
-          <label>Stock item<select v-model="harvest.inventoryId" required><option disabled value="">Choose stock</option><option v-for="s in stock" :key="s.id" :value="s.id">{{ s.name }} ({{ s.quantity }} {{ s.unit }})</option></select></label>
           <label>Harvest quantity<input v-model="harvest.quantity" required type="number" min="0.000001" step="0.000001"></label>
           <label>Harvest date<input v-model="harvest.date" required type="date"></label>
-          <label>Harvest note<textarea v-model="harvest.note" maxlength="2000" /></label>
+          <details><summary>Add a harvest note (optional)</summary><label>Harvest note<textarea v-model="harvest.note" maxlength="2000" /></label></details>
           <FbButton type="submit" :disabled="busy || !seasons.length || !stock.length">Record harvest</FbButton>
         </form>
         </template>
-        <template #sale>
+        <template v-if="activeTab === 'sale'">
         <form @submit.prevent="send('orders.create', sale)">
           <h3>Draft a manual sale</h3>
-          <label>Season<select v-model="sale.seasonId" required><option disabled value="">Choose season</option><option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
-          <label>Stock item<select v-model="sale.inventoryId" required><option disabled value="">Choose stock</option><option v-for="s in stock" :key="s.id" :value="s.id">{{ s.name }} ({{ s.quantity }} {{ s.unit }})</option></select></label>
-          <label>Optional storefront product (NGN only)<select v-model="sale.productId"><option value="">No storefront mapping</option><option v-for="p in (state.products || []).filter(product => product.currency === 'NGN')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-          <p>This explicitly maps the selected product to this stock item for this order only. Legacy storefront quantities are not changed.</p>
+          <details><summary>Link a storefront product (optional)</summary><label>Optional storefront product (NGN only)<select v-model="sale.productId"><option value="">No storefront mapping</option><option v-for="p in (state.products || []).filter(product => product.currency === 'NGN')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <p>This explicitly maps the selected product to this stock item for this order only. Legacy storefront quantities are not changed.</p></details>
           <label>Sale quantity<input v-model="sale.quantity" required type="number" min="0.000001" step="0.000001"></label>
           <label>Unit price (NGN)<input v-model="sale.unitPrice" required type="number" min="0.01" step="0.01"></label>
           <label>Customer<input v-model="sale.customer" required maxlength="200"></label>
@@ -131,22 +160,20 @@ async function print(row) {
           <FbButton type="submit" :disabled="busy || !seasons.length || !stock.length">Create draft</FbButton>
         </form>
         </template>
-        <template #expense>
+        <template v-if="activeTab === 'expense'">
         <form @submit.prevent="send('expense.create', expense)">
           <h3>Season expense</h3>
-          <label>Season<select v-model="expense.seasonId" required><option disabled value="">Choose season</option><option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
           <label>Expense title<input v-model="expense.title" required maxlength="200"></label>
           <label>Amount (NGN)<input v-model="expense.amount" required type="number" min="0.01" step="0.01"></label>
           <label>Expense date<input v-model="expense.date" required type="date"></label>
-          <label>Expense note<textarea v-model="expense.note" maxlength="2000" /></label>
+          <details><summary>Add an expense note (optional)</summary><label>Expense note<textarea v-model="expense.note" maxlength="2000" /></label></details>
           <FbButton type="submit" :disabled="busy || !seasons.length">Record expense</FbButton>
         </form>
         </template>
-      </FbTabs>
       </div>
-      </FbDialog>
+      </div></fieldset></section></Transition>
       <section class="orders" aria-label="Sales orders">
-        <div class="section-heading"><div><h3>Orders &amp; deliveries</h3><p>Cash confirmation and delivery are separate steps.</p></div><FbButton variant="secondary" :disabled="busy" @click="openEditor('sale')"><Plus :size="18" aria-hidden="true" />Draft sale</FbButton></div><p v-if="!business.orders.length" class="order-empty">No sales recorded yet. Draft a sale when you have a buyer, then confirm only after cash is received.</p>
+        <div class="section-heading"><div><h3>Orders &amp; deliveries</h3><p>Cash confirmation and delivery are separate steps.</p></div><FbButton variant="secondary" :disabled="busy" @click="openEditor('sale', $event)"><Plus :size="18" aria-hidden="true" />Draft sale</FbButton></div><p v-if="!business.orders.length" class="order-empty">No sales recorded yet. Draft a sale when you have a buyer, then confirm only after cash is received.</p>
         <div class="order-grid">
         <article v-for="row in business.orders" :key="row.id" class="order-card" :class="row.status">
           <header class="order-heading"><Receipt :size="24" aria-hidden="true" /><h4>{{ row.customer }}</h4><span class="order-status">{{ row.status }}</span></header>
@@ -160,9 +187,9 @@ async function print(row) {
             <p v-if="row.delivery.reference" class="delivery-reference">{{ row.delivery.reference }}</p>
             <FbButton variant="secondary" :disabled="busy" :aria-expanded="deliveryEditor === row.id" @click="deliveryEditor = deliveryEditor === row.id ? '' : row.id"><Truck :size="18" aria-hidden="true" />{{ deliveryEditor === row.id ? 'Close delivery editor' : 'Edit delivery' }}</FbButton>
             <form v-if="deliveryEditor === row.id" class="delivery-editor" @submit.prevent="send('orders.deliver', { id: row.id, status: delivery[row.id]?.status || row.delivery.status, reference: delivery[row.id]?.reference ?? row.delivery.reference })">
-              <label>Delivery status<select :value="delivery[row.id]?.status || row.delivery.status" @change="delivery[row.id] = { ...delivery[row.id], status: $event.target.value }"><option>pending</option><option>dispatched</option><option>delivered</option></select></label>
+              <fieldset :disabled="busy"><legend>Delivery details</legend><span>Delivery status</span><div class="record-choices" role="group" aria-label="Delivery status"><button v-for="status in ['pending', 'dispatched', 'delivered']" :key="status" type="button" :aria-pressed="(delivery[row.id]?.status || row.delivery.status) === status" @click="delivery[row.id] = { ...delivery[row.id], status }">{{ status }}</button></div>
               <label>Delivery reference<input :value="delivery[row.id]?.reference ?? row.delivery.reference" maxlength="200" @input="delivery[row.id] = { ...delivery[row.id], reference: $event.target.value }"></label>
-              <FbButton type="submit" :disabled="busy">Update delivery</FbButton>
+              <FbButton type="submit" :disabled="busy">Update delivery</FbButton></fieldset>
             </form>
           </template>
         </article>
@@ -175,7 +202,8 @@ async function print(row) {
 </template>
 
 <style scoped>
-.farm-business{width:100%;min-width:0;color:#193d2b;font-family:'Plus Jakarta Sans',sans-serif}.farm-business h3{font-size:1.2rem;font-weight:750;margin-bottom:8px}.farm-business p{margin:10px 0;line-height:1.65}.farm-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;padding:28px 0;margin:12px 0 28px;gap:0}.farm-flow>li{position:relative;min-width:0;padding:0 24px 20px;border-bottom:3px solid #b6cb97;display:flex;flex-direction:column;align-items:flex-start;gap:8px}.farm-flow>li:first-child{padding-left:0}.farm-flow>li:last-child{border-color:#e9c84d;padding-right:0}.farm-flow>li:not(:last-child)::after{content:'→';position:absolute;right:-10px;top:20px;color:#456433;background:#f7faef;z-index:1;font-size:22px}.flow-icon{display:grid;place-items:center;width:64px;height:64px;border-radius:20px;background:#e5edcf;margin-bottom:12px}.farm-flow>li:last-child .flow-icon{background:#fff0b7}.farm-flow>li>p{font-weight:750;margin:0}.farm-flow>li>span:not(.flow-icon){font-size:.875rem;color:#52674f;line-height:1.6}.farm-flow :deep(button){margin-top:auto}.flow-stock{list-style:none;padding:0;width:100%;max-height:200px;overflow:auto;font-size:.875rem}.flow-stock li{padding:10px 0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:1px solid #dce6d5}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap}.order-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:24px;margin-bottom:32px}.order-card{padding:24px;border:1px solid #dce6d5;border-radius:24px;background:white;min-width:0;overflow-wrap:anywhere;border-top:5px solid #e9c84d}.order-card.confirmed{border-top-color:#6f9950}.order-card.cancelled{border-top-color:#c8d1c2}.order-heading{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.order-heading h4{font-size:1.1rem;font-weight:750;flex:1}.order-status{padding:6px 12px;border-radius:100px;background:#f0f4e9;font-size:.8rem;font-weight:700}.order-product{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.order-card .order-total{font-size:1.8rem;font-weight:750;letter-spacing:-.04em;margin-bottom:0}.order-reference{font-size:.8rem;color:#52674f;border-bottom:1px solid #dce6d5;padding-bottom:16px}.order-empty{padding:32px;background:#f5f8ee;border-radius:24px}.forms{margin-top:20px;color:#193d2b;font-family:'Plus Jakarta Sans',sans-serif}.forms h3{font-size:1.2rem;font-weight:750;margin:16px 0}.forms form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.forms form>h3,.forms form>p,.forms form>button{grid-column:1/-1}.forms form>p{line-height:1.6;font-size:.875rem;color:#52674f}.forms label,.delivery-editor label{display:grid;gap:8px;min-width:0;font-size:.875rem;font-weight:600}input,select,textarea{width:100%;min-width:0;min-height:48px;padding:12px;border:1px solid #a6b99d;border-radius:12px;background:white;color:#193d2b}textarea{min-height:100px}.delivery-editor{padding:20px;margin-top:16px;background:#f5f8ee;border-radius:16px;display:grid;gap:16px}.farm-business :deep(button),.forms :deep(button){min-height:44px;display:inline-flex;justify-content:center;align-items:center;gap:8px;white-space:normal;max-width:100%;margin-top:8px}.farm-business :deep(:focus-visible),.forms :deep(:focus-visible){outline:3px solid #9b7900;outline-offset:3px}.error{color:#a22525}.table-wrap{overflow:auto;border:1px solid #dce6d5;border-radius:20px;margin-top:20px}table{width:100%;text-align:left;border-collapse:collapse;background:white;font-size:.875rem}td,th{padding:16px;border-bottom:1px solid #dce6d5;white-space:nowrap}thead{background:#f0f4e9}@media(max-width:1100px){.farm-flow{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:28px}.farm-flow>li:nth-child(3){padding-left:0}.farm-flow>li:nth-child(2)::after{display:none}}@media(max-width:600px){.farm-flow{grid-template-columns:1fr;gap:0;padding:16px 0}.farm-flow>li,.farm-flow>li:first-child,.farm-flow>li:last-child,.farm-flow>li:nth-child(3){padding:20px 0 24px 24px;border-bottom:0;border-left:3px solid #b6cb97}.farm-flow>li:not(:last-child)::after{content:'↓';left:-11px;right:auto;top:auto;bottom:-10px}.farm-flow>li:nth-child(2)::after{display:block}.forms form{grid-template-columns:1fr}.order-card{padding:20px}}@media(prefers-reduced-motion:reduce){.farm-business :deep(*),.forms :deep(*){animation:none!important;transition:none!important}}
+.inline-editor{margin:24px 0;padding:clamp(14px,3vw,28px);border:2px solid #b6cb97;border-left:5px solid #066136;border-radius:18px;background:#fff;min-width:0;scroll-margin-top:24px}.editor-fields{border:0;padding:0;margin:0;min-width:0}.record-picker{display:grid;gap:16px}.record-choices{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}.farm-business .record-choices button,.farm-business .choice-grid button{min-height:44px;padding:12px 16px;border:2px solid #dce6d5;border-radius:12px;background:#f5f6f0;color:#193d2b;font:inherit;text-align:left;cursor:pointer;overflow-wrap:anywhere}.choice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:10px}.farm-business .choice-grid button{display:grid;gap:6px;align-content:start}.choice-grid span{font-size:.85rem}.farm-business button[aria-pressed=true]{border-color:#066136;background:#e5edcf;box-shadow:inset 4px 0 #066136}.chosen-context{padding:12px;background:#e5edcf;border-radius:10px}.inline-editor:focus-visible,.farm-business button:focus-visible,.farm-business summary:focus-visible{outline:3px solid #b48000;outline-offset:3px}.farm-business summary{cursor:pointer;padding:12px 0;min-height:44px}.farm-business button{transition:background-color 160ms ease-out,transform 160ms ease-out}.farm-business button:active:not(:disabled){transform:scale(.98)}.editor-enter-active,.editor-leave-active{transition:opacity 200ms ease-out,transform 200ms ease-out}.editor-enter-from,.editor-leave-to{opacity:0;transform:translateY(-6px)}.editor-leave-active{pointer-events:none}.inline-editor *{box-sizing:border-box}.farm-business :deep(button){white-space:normal}.farm-business input,.farm-business select,.farm-business textarea{max-width:100%}@media(prefers-reduced-motion:reduce){.farm-business *{transition:none!important;animation:none!important}}
+.farm-business{width:100%;min-width:0;color:#193d2b;font-family:'Plus Jakarta Sans',sans-serif}.farm-business h3{font-size:1.2rem;font-weight:750;margin-bottom:8px}.farm-business p{margin:10px 0;line-height:1.65}.farm-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;padding:28px 0;margin:12px 0 28px;gap:0}.farm-flow>li{position:relative;min-width:0;padding:0 24px 20px;border-bottom:3px solid #b6cb97;display:flex;flex-direction:column;align-items:flex-start;gap:8px}.farm-flow>li:first-child{padding-left:0}.farm-flow>li:last-child{border-color:#e9c84d;padding-right:0}.farm-flow>li:not(:last-child)::after{content:'→';position:absolute;right:-10px;top:20px;color:#456433;background:#f7faef;z-index:1;font-size:22px}.flow-icon{display:grid;place-items:center;width:64px;height:64px;border-radius:20px;background:#e5edcf;margin-bottom:12px}.farm-flow>li:last-child .flow-icon{background:#fff0b7}.farm-flow>li>p{font-weight:750;margin:0}.farm-flow>li>span:not(.flow-icon){font-size:.875rem;color:#52674f;line-height:1.6}.farm-flow :deep(button){margin-top:auto}.flow-stock{list-style:none;padding:0;width:100%;max-height:200px;overflow:auto;font-size:.875rem}.flow-stock li{padding:10px 0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:1px solid #dce6d5}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap}.order-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:24px;margin-bottom:32px}.order-card{padding:24px;border:1px solid #dce6d5;border-radius:24px;background:white;min-width:0;overflow-wrap:anywhere;border-top:5px solid #e9c84d}.order-card.confirmed{border-top-color:#6f9950}.order-card.cancelled{border-top-color:#c8d1c2}.order-heading{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.order-heading h4{font-size:1.1rem;font-weight:750;flex:1}.order-status{padding:6px 12px;border-radius:100px;background:#f0f4e9;font-size:.8rem;font-weight:700}.order-product{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.order-card .order-total{font-size:1.8rem;font-weight:750;letter-spacing:-.04em;margin-bottom:0}.order-reference{font-size:.8rem;color:#52674f;border-bottom:1px solid #dce6d5;padding-bottom:16px}.order-empty{padding:32px;background:#f5f8ee;border-radius:24px}.forms{margin-top:20px;color:#193d2b;font-family:'Plus Jakarta Sans',sans-serif}.forms h3{font-size:1.2rem;font-weight:750;margin:16px 0}.forms form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.forms form>h3,.forms form>p,.forms form>button,.forms form>details{grid-column:1/-1}.forms form>p{line-height:1.6;font-size:.875rem;color:#52674f}.forms label,.delivery-editor label{display:grid;gap:8px;min-width:0;font-size:.875rem;font-weight:600}input,select,textarea{width:100%;min-width:0;min-height:48px;padding:12px;border:1px solid #a6b99d;border-radius:12px;background:white;color:#193d2b}textarea{min-height:100px}.delivery-editor{padding:20px;margin-top:16px;background:#f5f8ee;border-radius:16px;display:grid;gap:16px}.farm-business :deep(button),.forms :deep(button){min-height:44px;display:inline-flex;justify-content:center;align-items:center;gap:8px;white-space:normal;max-width:100%;margin-top:8px}.farm-business :deep(:focus-visible),.forms :deep(:focus-visible){outline:3px solid #9b7900;outline-offset:3px}.error{color:#a22525}.table-wrap{overflow:auto;border:1px solid #dce6d5;border-radius:20px;margin-top:20px}table{width:100%;text-align:left;border-collapse:collapse;background:white;font-size:.875rem}td,th{padding:16px;border-bottom:1px solid #dce6d5;white-space:nowrap}thead{background:#f0f4e9}@media(max-width:1100px){.farm-flow{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:28px}.farm-flow>li:nth-child(3){padding-left:0}.farm-flow>li:nth-child(2)::after{display:none}}@media(max-width:600px){.farm-flow{grid-template-columns:1fr;gap:0;padding:16px 0}.farm-flow>li,.farm-flow>li:first-child,.farm-flow>li:last-child,.farm-flow>li:nth-child(3){padding:20px 0 24px 24px;border-bottom:0;border-left:3px solid #b6cb97}.farm-flow>li:not(:last-child)::after{content:'↓';left:-11px;right:auto;top:auto;bottom:-10px}.farm-flow>li:nth-child(2)::after{display:block}.forms form{grid-template-columns:1fr}.order-card{padding:20px}}@media(prefers-reduced-motion:reduce){.farm-business :deep(*),.forms :deep(*){animation:none!important;transition:none!important}}
 </style>
 <style>
 .farm-invoice{display:none}@media print{body:has(>.farm-invoice)>*{display:none!important}body>.farm-invoice{display:block!important;color:#000;background:#fff;padding:2rem;font:16px sans-serif}.farm-invoice h1{font-size:26px}.farm-invoice p{margin:1rem 0}}

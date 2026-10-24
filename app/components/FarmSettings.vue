@@ -1,6 +1,6 @@
 <script setup>
 import FarmServiceStatus from './FarmServiceStatus.vue'
-import { Settings, LogOut, LoaderCircle, ShieldCheck, Pencil, X, Sprout, MapPin, Languages } from 'lucide-vue-next'
+import { Settings, LogOut, LoaderCircle, ShieldCheck, Pencil, X, Sprout, MapPin, Languages, Wheat, Beef, Layers3 } from 'lucide-vue-next'
 const props = defineProps({ user: { type: Object, required: true }, loggingOut: Boolean, onProfileSaved: { type: Function, required: true } })
 defineEmits(['logout'])
 const form = reactive({ farmName: '', farmType: '', mainEnterprises: '', location: '', preferredLanguage: '' })
@@ -71,7 +71,7 @@ async function save() {
       <div class="editor-heading"><h2 ref="editorHeading" tabindex="-1" class="text-lg font-bold">Edit farm profile</h2><button type="button" :disabled="saving" @click="closeEditor"><X :size="18" aria-hidden="true" />Cancel</button></div><p class="mt-2 text-sm leading-6 text-[#526C46]">Changing your farm type takes you to the matching dashboard. Your existing records stay with your account.</p>
       <fieldset :disabled="saving || loggingOut" class="mt-6 grid min-w-0 gap-5 sm:grid-cols-2">
         <div class="sm:col-span-2"><label for="settings-farm-name">Farm name</label><input id="settings-farm-name" v-model="form.farmName" required maxlength="150" autocomplete="organization"></div>
-        <div><label for="settings-farm-type">Farm type</label><select id="settings-farm-type" v-model="form.farmType" required><option value="" disabled>Choose your farm type</option><option value="crops">Crops</option><option value="livestock">Livestock (including poultry)</option><option value="mixed">Mixed farming</option></select></div>
+        <fieldset class="farm-type-picker sm:col-span-2"><legend>What do you farm?</legend><label v-for="choice in [{ value: 'crops', label: 'Crops', icon: Wheat }, { value: 'livestock', label: 'Animals', icon: Beef }, { value: 'mixed', label: 'Both', icon: Layers3 }]" :key="choice.value" class="farm-type-choice" :class="{ selected: form.farmType === choice.value }"><input v-model="form.farmType" type="radio" name="settings-farm-type" :value="choice.value" required><component :is="choice.icon" :size="26" aria-hidden="true" /><span>{{ choice.label }}</span></label></fieldset>
         <div><label for="settings-location">Location (optional)</label><input id="settings-location" v-model="form.location" maxlength="200" placeholder="e.g. Ibadan, Oyo State" aria-describedby="settings-location-hint"><p id="settings-location-hint" class="field-hint">A town or region is enough. No precise address is needed.</p></div>
         <div class="sm:col-span-2"><label for="settings-enterprises">Main crops or animals (optional)</label><input id="settings-enterprises" v-model="form.mainEnterprises" maxlength="500" placeholder="e.g. Maize, tomatoes, dairy cows"></div>
         <div class="sm:col-span-2"><label for="settings-language">Preferred language (optional)</label><input id="settings-language" v-model="form.preferredLanguage" maxlength="80" placeholder="e.g. English" aria-describedby="settings-language-hint"><p id="settings-language-hint" class="field-hint">Saved as a profile preference. This does not translate the app or enable notifications.</p></div>
@@ -84,6 +84,7 @@ async function save() {
 </template>
 
 <style scoped>
+.farm-type-picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;min-width:0}.farm-type-picker legend{font-size:13px;font-weight:700;margin-bottom:10px}.farm-type-choice{position:relative;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;min-height:98px;border:1px solid #d6e1cb;border-radius:16px;background:white;cursor:pointer;margin:0;padding:14px 8px;color:#526c46;transition:background-color 160ms ease-out,border-color 160ms ease-out}.farm-type-choice.selected{background:#eaf2e1;border-color:#066136;color:#066136}.farm-type-choice input{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;cursor:pointer}.farm-type-choice:focus-within{outline:3px solid #b48c12;outline-offset:3px}@media(prefers-reduced-motion:reduce){.farm-type-choice{transition:none}}
 .farm-settings { width:100%; min-width:0; color:#193D2B; }
 .profile-overview { overflow:hidden; border-radius:24px; border:1px solid #cbdcc9; background:#f2f7ef; }
 .profile-identity { display:flex; gap:18px; align-items:center; padding:28px; background:#066136; color:white; }

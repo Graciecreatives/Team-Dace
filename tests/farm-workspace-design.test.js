@@ -9,6 +9,28 @@ const filename = 'app/components/FarmOperations.vue'
 const source = await readFile(filename, 'utf8')
 const { descriptor, errors } = parse(source, { filename })
 
+test('production and business expose in-place choices, finite motion and native large-list fallbacks', async () => {
+  for (const component of ['FarmProduction', 'FarmBusiness']) {
+    const text = await readFile(`app/components/${component}.vue`, 'utf8')
+    assert.doesNotMatch(text, /FbDialog|role="dialog"/)
+    assert.match(text, /class="inline-editor"/)
+    assert.match(text, /Close, keep draft/)
+    assert.match(text, /:aria-pressed=/)
+    assert.match(text, /tabindex="-1"/)
+    assert.match(text, /focus-visible/)
+    assert.match(text, /prefers-reduced-motion:reduce/)
+    assert.match(text, /transition:opacity 200ms/)
+    assert.doesNotMatch(text, /animation:[^;}]*infinite/)
+    assert.match(text, /min\(100%,180px\)/)
+  }
+  const business = await readFile('app/components/FarmBusiness.vue', 'utf8')
+  assert.match(business, /seasons.length <= 6/)
+  assert.match(business, /stock.length <= 6/)
+  assert.match(business, /<label v-else>Season<select/)
+  assert.match(business, /<label v-else>Stock item<select/)
+  assert.match(business, /v-if="!detailsOpen\[activeTab\]"/)
+})
+
 function mount() {
   const props = Vue.reactive({ state: {
     farm: { id: 'farm', role: 'owner' }, currentUserId: 'owner',

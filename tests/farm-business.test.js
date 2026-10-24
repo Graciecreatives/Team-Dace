@@ -107,8 +107,8 @@ test('business Vue component compiles script, template and print styles', async 
   assert.ok(source.includes('Cash sale invoice (NGN)'))
   assert.ok(source.includes('Seller: {{ invoice.sellerName'))
   assert.ok(source.includes('Nigerian naira (NGN)'))
-  assert.ok(source.includes('<FbTabs v-model="activeTab" :items="tabs"'))
-  for (const name of ['harvest', 'sale', 'expense']) assert.ok(source.includes(`<template #${name}>`))
+  assert.ok(source.includes('aria-label="Business record type"'))
+  for (const name of ['harvest', 'sale', 'expense']) assert.ok(source.includes(`<template v-if="activeTab === '${name}'">`))
   assert.ok(!source.includes('farm currency'))
   assert.deepEqual(errors, [])
   const script = compileScript(descriptor, { id: 'business' })
@@ -141,16 +141,30 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
   } })
   app.mount({})
   try {
+    props.state = { planning: { seasons: [{ id: 'season', name: 'Maize' }] }, inventory: [{ id: 'stock', name: 'Maize', quantity: 10, unit: 'kg' }] }
+    await Vue.nextTick()
     assert.equal(drafts.editorOpen.value, false, 'forms start closed')
     drafts.openEditor('sale')
     assert.equal(drafts.activeTab.value, 'sale')
     assert.equal(drafts.editorOpen.value, true)
+    drafts.sale.seasonId = 'season'
+    assert.equal(drafts.choicesReady.value, false, 'sale needs stock before revealing details')
+    drafts.sale.inventoryId = 'stock'
+    assert.equal(drafts.choicesReady.value, true)
+    await drafts.continueEditor()
+    assert.equal(drafts.detailsOpen.sale, true)
     drafts.sale.customer = 'Kept after close'
-    drafts.editorOpen.value = false
+    await drafts.backToChoices()
+    assert.equal(drafts.detailsOpen.sale, false)
+    assert.equal(drafts.sale.customer, 'Kept after close')
+    await drafts.closeEditor()
     drafts.openEditor('sale')
     assert.equal(drafts.sale.customer, 'Kept after close')
     props.busy = true
     await Vue.nextTick()
+    await drafts.closeEditor()
+    await drafts.backToChoices()
+    assert.equal(drafts.editorOpen.value, true, 'busy work cannot close editor')
     drafts.openEditor('expense')
     assert.equal(drafts.activeTab.value, 'sale', 'busy work cannot switch editor')
     props.busy = false

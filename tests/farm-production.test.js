@@ -33,6 +33,29 @@ function mount(role) {
 function validSeason(vm) { Object.assign(vm.season, { name: 'New dairy', kind: 'livestock', startsOn: '2026-01-01', endsOn: '2026-12-31', enterpriseId: 'register', plotId: 'plot' }) }
 function validEvent(vm) { Object.assign(vm.event, { type: 'health', date: '2026-10-24', quantity: '2', unit: 'head', note: 'Checked' }) }
 
+test('inline production close preserves choices and details and restores trigger focus', async () => {
+  const f = mount()
+  try {
+    let focused = 0
+    await f.vm.openEditor('season.create', { currentTarget: { focus() { focused++ } } })
+    validSeason(f.vm)
+    f.vm.seasonDetails.value = true
+    await f.vm.closeEditor()
+    assert.equal(f.vm.editor.value, '')
+    assert.equal(f.vm.season.name, 'New dairy')
+    assert.equal(f.vm.season.kind, 'livestock')
+    assert.equal(f.vm.seasonDetails.value, true)
+    assert.equal(focused, 1)
+    await f.vm.openEditor('season.create')
+    f.props.busy = true
+    await Vue.nextTick()
+    await f.vm.closeEditor()
+    await f.vm.openEditor('plot.create')
+    assert.equal(f.vm.editor.value, 'season.create')
+    assert.equal(f.commands.length, 0)
+  } finally { f.close() }
+})
+
 test('season journey uses real dates and selects the earliest upcoming work without mutating storage', () => {
   const f = mount()
   try {
@@ -57,7 +80,7 @@ test('production SFC compiles script, template and scoped styles with shared UI'
   assert.deepEqual(errors, [])
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'production', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
   for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'production', scoped: true }).errors, [])
-  for (const name of ui.filter(name => !['Sprout', 'Beef', 'CalendarPlus', 'NotebookPen'].includes(name))) assert.ok(source.includes(`<${name}`))
+  for (const name of ui.filter(name => !['FbDialog', 'Sprout', 'Beef', 'CalendarPlus', 'NotebookPen'].includes(name))) assert.ok(source.includes(`<${name}`))
   assert.match(source, /ClientOnly v-if="showMap"/)
   assert.ok(!source.includes('<option value="harvest">') || !source.slice(source.indexOf('Event type')).includes('<option value="harvest">'))
 })
