@@ -39,3 +39,11 @@ These are interaction references, not templates to copy or vendor integrations. 
 - No icon or colour is the only way to understand a critical state.
 - Responsive at 320 CSS pixels, visible keyboard focus, reduced-motion support.
 - Intended to reduce reading and make paths obvious. Do not claim usability for non-readers or children without representative user testing. Voice services still require configuration and supported browser capabilities.
+
+## Validation, October 24, 2026
+
+- 235 isolated regression tests and native Workers crypto checks passed. Focused editor lifecycle tests additionally verify that confirmed saves close only matching unchanged drafts, never unrelated or edited drafts.
+- Node production packaging and process-restart persistence checks passed, followed by the Cloudflare Worker production build.
+- Actual browser review covered the visual home, season planner and task board. Fourteen feature workspaces were checked at a 358px viewport. A small intrinsic-width overflow in planning was found and corrected. All 16 reviewed dashboard sections also fit the deployed 320px phone preview (317px content viewport) without horizontal page overflow.
+- Published Worker version `8e14c224-255a-403e-b8ee-1c81a140731f`. Real HTTPS authentication, D1 journal/version conflicts, connected harvest/stock/cash workflows and private R2 publication checks passed. Only the exact disposable smoke-test account and image were removed afterwards.
+- AI, voice and external weather service success is not implied by these checks. Their credentials and external services remain separate configuration requirements.
