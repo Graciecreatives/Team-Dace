@@ -61,7 +61,7 @@ async function load() {
   search.value = ''
   filter.value = 'all'
   try {
-    const result = await $fetch('/api/tools', { signal: controller.signal })
+    const result = await $fetch('/api/tools', { signal: controller.signal, timeout: 15000, retry: 0 })
     if (version === generation) rows.value = result[props.section] || []
   } catch (e) { if (version === generation) error.value = e.data?.statusMessage || 'Could not load saved items. Please try again.' }
   finally { if (version === generation) loading.value = false }
@@ -79,7 +79,7 @@ async function save() {
   const input = { ...form, ...(editing.value && editingVersion.value ? { expectedUpdatedAt: editingVersion.value } : {}) }
   try {
     for (const key of ['quantity', 'threshold']) if (key in input) input[key] = numericInput(input[key], key === 'quantity' && section === 'enterprises', key)
-    const result = await $fetch(`/api/tools/${section}${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PATCH' : 'POST', body: input, signal: controller.signal })
+    const result = await $fetch(`/api/tools/${section}${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PATCH' : 'POST', body: input, signal: controller.signal, timeout: 15000, retry: 0 })
     if (version !== generation) return
     const item = result[{ enterprises: 'enterprise', inventory: 'inventory', referrals: 'referral' }[section]]
     const index = rows.value.findIndex(row => row.id === item.id)
@@ -97,7 +97,7 @@ async function remove(item) {
   error.value = ''
   const version = generation
   try {
-    await $fetch(`/api/tools/${props.section}/${item.id}`, { method: 'DELETE', signal: controller.signal })
+    await $fetch(`/api/tools/${props.section}/${item.id}`, { method: 'DELETE', signal: controller.signal, timeout: 15000, retry: 0 })
     if (version !== generation) return
     rows.value = rows.value.filter(row => row.id !== item.id)
     if (editing.value === item.id) reset()

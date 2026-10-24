@@ -53,6 +53,11 @@ test('real Vue mount load, add/edit success and explicit delete confirmation', a
   const removing = h.state.remove(item)
   await h.state.remove(item)
   assert.equal(h.requests.length, 4)
+  for (const request of h.requests) {
+    assert.equal(request.options.timeout, 15000, `${request.options.method || 'GET'} has a bounded timeout`)
+    assert.equal(request.options.retry, 0, `${request.options.method || 'GET'} does not retry automatically`)
+    assert.ok(request.options.signal instanceof AbortSignal)
+  }
   h.requests[3].resolve({ ok: true }); await removing
   assert.equal(h.state.rows.value.length, 0)
   h.unmount()
