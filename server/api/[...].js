@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'no
 import { promisify } from 'node:util'
 import { createError, defineEventHandler, deleteCookie, getCookie, getHeader, getRequestIP, getRequestURL, setCookie, setHeader } from 'h3'
 import { store } from '../utils/store.js'
+import { authConfig, authClient, confirmationRedirect, providerCall, verifyUser, verifiedIdentity, resolveSupabaseAuth, writeAuthCookies, logoutSupabase } from '../utils/supabase-auth.js'
 
 const derive = promisify(scrypt)
 const cookieName = 'farmbuddy_session'
@@ -91,6 +92,12 @@ function token(event) {
   return value && /^[a-f0-9]{64}$/.test(value) ? digest(value) : null
 }
 function authenticated(data, event) {
+  if (authConfig().mode === 'supabase') {
+    const identity = verifiedIdentity(event)
+    const user = identity && data.users.find(item => item.supabaseId === identity.id)
+    if (!user) fail(401, 'Authentication required')
+    return user
+  }
   const hash = token(event)
   const session = data.sessions.find(item => item.tokenHash === hash && item.expiresAt > Date.now())
   const user = session && data.users.find(item => item.id === session.userId)
@@ -144,12 +151,41 @@ export default defineEventHandler(async event => {
   const path = getRequestURL(event).pathname.replace(/\/$/, '')
   const method = event.method
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) mutationGuard(event)
+  await resolveSupabaseAuth(event)
+  if (method === 'GET' && path === '/api/auth/config') {
+    const { mode, configured } = authConfig()
+    return { mode, configured }
+  }
 
   if (method === 'POST' && ['/api/auth/register', '/api/auth/login'].includes(path)) {
     throttle(event)
     const input = await body(event)
     const registering = path.endsWith('/register')
     const { email, password } = credentials(input, registering)
+    if (authConfig().mode === 'supabase') {
+      const profile = registering ? {
+        name: profileText(input.name, 'name', 100),
+        farmName: profileText(input.farmName, 'farmName', 150, true),
+        farmType: profileText(input.farmType, 'farmType', 100, true),
+      } : null
+      const client = authClient(event)
+      const result = await providerCall(() => registering
+        ? client.auth.signUp({ email, password, options: { data: profile, emailRedirectTo: confirmationRedirect() } })
+        : client.auth.signInWithPassword({ email, password }))
+      if (registering && !result.session) return { requiresEmailConfirmation: true, message: 'Check your email to confirm your account, then sign in.' }
+      if (!result.session?.access_token) fail(401, 'Invalid email or password')
+      const identity = await verifyUser(client, result.session.access_token)
+      const user = await store(data => {
+        const existing = data.users.find(item => item.supabaseId === identity.id)
+        if (existing) return publicUser(existing)
+        if (data.users.some(item => item.email.toLowerCase() === identity.email)) fail(409, 'Account migration required. Contact support.')
+        const created = { id: randomUUID(), supabaseId: identity.id, email: identity.email, name: profile?.name ?? identity.profile.name, farmName: profile?.farmName ?? identity.profile.farmName, farmType: profile?.farmType ?? identity.profile.farmType, onboardingCompleted: false, location: '', mainEnterprises: '', preferredLanguage: '' }
+        data.users.push(created)
+        return publicUser(created)
+      }, true)
+      writeAuthCookies(event, result.session)
+      return { user }
+    }
     const rawToken = randomBytes(32).toString('hex')
     let user
     if (registering) {
@@ -168,7 +204,7 @@ export default defineEventHandler(async event => {
     } else {
       const found = await store(data => data.users.find(item => item.email === email))
       const hash = await passwordHash(password, found?.salt || '00000000000000000000000000000000')
-      if (!found || !timingSafeEqual(hash, Buffer.from(found.passwordHash, 'hex'))) fail(401, 'Invalid email or password')
+      if (!found?.passwordHash || !found?.salt || !timingSafeEqual(hash, Buffer.from(found.passwordHash, 'hex'))) fail(401, 'Invalid email or password')
       user = await store(data => {
         newSession(data, found.id, event, rawToken)
         return publicUser(found)
@@ -181,6 +217,11 @@ export default defineEventHandler(async event => {
     return store(data => ({ user: publicUser(authenticated(data, event)) }))
   }
   if (method === 'POST' && path === '/api/auth/logout') {
+    if (authConfig().mode === 'supabase') {
+      await logoutSupabase(event)
+      deleteCookie(event, cookieName, cookieOptions)
+      return { ok: true }
+    }
     await store(data => { data.sessions = data.sessions.filter(item => item.tokenHash !== token(event) && item.expiresAt > Date.now()) }, true)
     deleteCookie(event, cookieName, cookieOptions)
     return { ok: true }
