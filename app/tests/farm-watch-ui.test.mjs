@@ -16,7 +16,7 @@ function setup(fetcher = () => { throw new Error('Unexpected network') }, geoloc
   const scope = effectScope(), props = reactive({ user: { id: 'one', mainEnterprises: ['Maize'], farmType: 'crops' } })
   const icons = Object.fromEntries(['CloudSun', 'CloudRain', 'Sun', 'Snowflake', 'Droplets', 'RefreshCw', 'Check', 'X', 'MapPin', 'Bell', 'Sprout', 'ShieldCheck'].map(name => [name, name]))
   const store = new Map()
-  const context = vm.createContext({ ref, computed, watch, weatherAdvice, ...icons, AbortController, URL,
+  const context = vm.createContext({ ref, computed, watch, weatherAdvice, FarmSatelliteMap: {}, ...icons, AbortController, URL,
     onMounted: callback => { mount = callback }, onBeforeUnmount: callback => { unmount = callback },
     navigator: { geolocation }, window: {}, document: { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' },
     localStorage: { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) },
@@ -39,6 +39,12 @@ test('weather fieldboard script, template and scoped styles compile', () => {
   assert.match(source, /min-height:44px/)
   assert.match(source, /prefers-reduced-motion:reduce/)
   assert.match(source, /focus-visible/)
+  assert.ok(source.indexOf('class="watch-identity"') < source.indexOf('<FarmSatelliteMap'))
+  assert.ok(source.indexOf('@click="locate"') < source.indexOf('<FarmSatelliteMap'))
+  assert.equal((source.match(/<h2>/g) || []).length, 1)
+  assert.match(source, /'Use my location'/)
+  assert.doesNotMatch(source, /Use my location &amp; get farm advice|Use my location & get farm advice|type="checkbox"/)
+  assert.match(source, /<details><summary>Location privacy & report settings<\/summary>/)
 })
 
 test('condition identity is derived from actual forecast values, never fabricated temperature or sunshine', () => {
@@ -96,6 +102,26 @@ test('account switch aborts inflight service calls and ignores late responses', 
   assert.equal(app.state.health.value, null)
   assert.equal(app.state.location.value, null)
   assert.equal(app.state.busy.value, false)
+  app.stop()
+})
+
+test('new user-selected area replaces both forecast snapshot and map point, without autosave', async () => {
+  const calls = []
+  const app = setup((path, options) => { calls.push(options); return Promise.resolve(path === '/api/weather' ? forecast : { items: [], sources: [] }) })
+  app.state.usePoint(7.45, 3.98)
+  await flush()
+  app.state.latitude.value = '8.24'; app.state.longitude.value = '5.06'
+  assert.equal(calls.length, 2, 'editing inputs does not send coordinates')
+  assert.equal(app.state.location.value.latitude, 7.5)
+  app.state.submitManual()
+  assert.equal(app.state.forecast.value, null, 'old forecast clears before new request')
+  assert.equal(app.state.location.value.latitude, 8.2)
+  assert.equal(app.state.location.value.longitude, 5.1)
+  await flush()
+  assert.equal(calls.length, 4)
+  assert.equal(calls[2].body.latitude, 8.2)
+  assert.equal(app.store.size, 0)
+  assert.match(source, /FarmSatelliteMap :key="account" :point="location"/)
   app.stop()
 })
 
