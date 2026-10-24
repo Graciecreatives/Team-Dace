@@ -51,7 +51,10 @@ test('assistant dictation separates permission from capture and cleans up timers
   assert.equal(state.dictationPending.value, false)
   now = 3500
   for (const tick of intervals.values()) tick()
-  assert.equal(state.dictationTime.value, '0:03')
+  assert.equal(state.dictationTime.value, '00:03')
+  now = 60000
+  for (const tick of intervals.values()) tick()
+  assert.equal(state.dictationTime.value, '01:00')
   state.stopDictation()
   assert.equal(active.stopped, true)
   assert.equal(state.dictationStopping.value, true)

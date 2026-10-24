@@ -25,6 +25,12 @@ Visit localhost port 3000. Register, complete onboarding, and open a tool from t
 4. Open FarmBuddyAI. Questions share selected farm profile fields and conversation context with OpenRouter and its selected model provider. Photos require explicit consent and are sent only with Send. Provider retention policies still apply.
 5. Read aloud shares the answer text with YarnGPT and returns audio. Browser dictation is a separate browser service, not YarnGPT transcription. Language support varies by browser/service. No microphone is opened automatically, and speech is never sent as a question without review.
 
+Active dictation shows animated bars, an elapsed-time counter and a Stop action. These bars are an activity indicator, not measured microphone levels. The active indicator starts only when the browser reports that listening has begun, not while permission is pending. Reduced-motion preferences disable the animation. Transcript entry remains editable and must be reviewed before sending or saving. Browser speech availability depends on browser support and microphone permissions, and phone microphone access may require an HTTPS deployment rather than a plain-HTTP LAN preview.
+
+## Dashboard settings
+
+The sidebar footer now shows the farmer's initials, name and Farm owner label and opens My farm. The promotional footer/homepage link is removed. Settings edits farm name, type, crops/animals, location and language preference through the authenticated profile API. A farm-type change redirects to the matching dashboard without moving records to another account. Name/email are read-only and the language field is a preference, not automatic app translation. Sign-out is now in Settings instead of the sidebar footer.
+
 Provider requests may incur charges. The app does not sign up, top up, purchase credits, or test live paid AI calls automatically. API keys remain server-side. Rate limits and bounded uploads are implemented, but production still needs account-level budgets, monitoring, and abuse controls.
 
 ## Weather and maps

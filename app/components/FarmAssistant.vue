@@ -64,7 +64,7 @@ const dictationPending = ref(false)
 const dictationStopping = ref(false)
 const dictationActive = computed(() => listening.value || dictationPending.value || dictationStopping.value)
 const dictationSeconds = ref(0)
-const dictationTime = computed(() => `0:${String(dictationSeconds.value).padStart(2, '0')}`)
+const dictationTime = computed(() => `${Math.floor(dictationSeconds.value / 60).toString().padStart(2, '0')}:${(dictationSeconds.value % 60).toString().padStart(2, '0')}`)
 const dictationLanguage = ref('en-NG')
 const dictationNotice = ref('')
 const dictationLanguages = [
