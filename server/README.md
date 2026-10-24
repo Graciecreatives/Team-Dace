@@ -1,8 +1,8 @@
 # FarmBuddy backend
 
-**Storage selection:** the local-file details below apply only to `FARMBUDDY_DATABASE=local`. Supabase PostgreSQL is supported through a private transactional snapshot adapter. For production explicitly select `FARMBUDDY_DATABASE=supabase`, provision and safely import using `docs/SUPABASE_DATABASE.md`. Product phone-photo storage and cloud cutover are covered in `docs/PRODUCT_PHOTOS.md`. Authentication can separately use Supabase Auth with `FARMBUDDY_AUTH=supabase`, see `docs/SUPABASE_AUTH.md` for configuration and non-automatic existing-account migration.
+**Storage selection:** local-file details below apply only to `FARMBUDDY_DATABASE=local`. Cloudflare production uses private D1 persistence with revision-checked snapshot writes, private R2 product images and Workers hosting. Follow `docs/CLOUDFLARE.md` for provisioning and a non-overwriting cutover. Authentication is app-owned email/password with opaque server-side sessions in the selected database.
 
-Run with `npm run dev` or `npm run host` for LAN previews, or `npm run build` followed by `node .output/server/index.mjs`. Local core features need no external services. Supabase, OpenRouter and YarnGPT features need private server configuration. The API creates no demo data.
+Run with `npm run dev` or `npm run host` for LAN previews, or `npm run build` followed by `node .output/server/index.mjs`. Local core features need no external services. Cloudflare deployment and optional OpenRouter, YarnGPT and OpenWeather features need private server configuration. The API creates no demo data.
 
 ## Contracts
 
@@ -33,7 +33,7 @@ Login and registration route incomplete users to `/onboarding`. Completed crops 
 
 ## Security and limits
 
-- Built-in Node scrypt uses independent 16-byte random salts, N=16384, r=8, p=1, and 64-byte hashes. Passwords are 8-256 characters at registration. Login uses constant-time hash comparison and a dummy scrypt for unknown emails.
+- Passwords are independently salted and verified using the versioned algorithms in `server/utils/auth.js`. Legacy scrypt hashes remain accepted and are never reset. Passwords are 8-256 characters at registration. Verification uses constant-time hash comparison and dummy work for unknown emails.
 - Sessions use 32-byte random tokens, with only SHA-256 token digests persisted. They expire after seven days, with at most ten live sessions per account. Login/register rotate the session represented by the incoming cookie. Logout is idempotent and revokes the incoming session.
 - Cookies use HttpOnly, SameSite=Lax, Path=/, and Secure when `NODE_ENV=production`. Production requires HTTPS. Never expose a production deployment over plain HTTP.
 - Mutations reject cross-site Fetch Metadata and reject supplied Origin values unless their scheme/host/port match the request Host and expected scheme. Non-browser clients may omit Origin. Forwarded host/protocol headers are not trusted. A TLS-terminating proxy must preserve the public Host, sanitize incoming headers, and restrict accepted public hosts. Do not expose the backend behind a proxy that rewrites Host to an internal name.

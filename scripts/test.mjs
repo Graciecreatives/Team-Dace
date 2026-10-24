@@ -6,8 +6,6 @@ import { readdirSync } from 'node:fs'
 const env = {
   ...process.env,
   FARMBUDDY_AUTH: 'local', FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local',
-  SUPABASE_URL: '', SUPABASE_DATABASE_URL: '', SUPABASE_PUBLISHABLE_KEY: '',
-  SUPABASE_ANON_KEY: '', SUPABASE_SERVICE_ROLE_KEY: '',
   OPENROUTER_API_KEY: '', YARNGPT_API_KEY: '', OPENWEATHER_API_KEY: '',
 }
 const units = [
