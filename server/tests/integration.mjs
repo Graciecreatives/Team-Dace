@@ -162,13 +162,15 @@ try {
   await writeFile(process.env.FARMBUDDY_DATA_FILE, JSON.stringify(legacy))
   assert.equal((await request('/api/auth/me', 'GET', undefined, b)).payload.user.onboardingCompleted, false)
   const record = (await request('/api/farm/records', 'POST', { title: 'Harvest', category: 'income', amount: 42.5, note: 'Test only' }, a)).payload.record
-  assert.deepEqual(Object.keys(record).sort(), ['id', 'title', 'category', 'amount', 'note', 'createdAt'].sort())
+  assert.deepEqual(Object.keys(record).sort(), ['id', 'title', 'category', 'amount', 'note', 'createdAt', 'updatedAt'].sort())
+  assert.equal(record.updatedAt, record.createdAt)
   assert.equal((await request('/api/farm/records', 'POST', { title: 'Work', category: 'activity' }, a)).payload.record.amount, null)
   for (const amount of [-1, null, '12', 1e13]) await request('/api/farm/records', 'POST', { title: 'Bad', category: 'expense', amount }, a, 400)
   await request('/api/farm/records', 'POST', { title: 'Bad', category: 'other' }, a, 400)
   await request('/api/farm/records', 'POST', { title: 'x'.repeat(201), category: 'income' }, a, 400)
   const reminder = (await request('/api/farm/reminders', 'POST', { title: 'Water', date: '2028-02-29' }, a)).payload.reminder
-  assert.deepEqual(Object.keys(reminder).sort(), ['id', 'title', 'date', 'completed'].sort())
+  assert.deepEqual(Object.keys(reminder).sort(), ['id', 'title', 'date', 'completed', 'createdAt', 'updatedAt'].sort())
+  assert.equal(reminder.updatedAt, reminder.createdAt)
   for (const date of ['2026-02-29', '2026-02-30', '2026-13-01', '2026-1-01', '2026-10-23T10:00:00Z', '0000-01-01']) {
     await request('/api/farm/reminders', 'POST', { title: 'Bad', date }, a, 400)
   }
