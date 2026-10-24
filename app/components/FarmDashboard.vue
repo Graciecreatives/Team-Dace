@@ -28,6 +28,16 @@ const section = ref('overview')
 const watchStarted = ref(false)
 const unreadWatch = ref(0)
 const mobileMenu = ref(false)
+const menuTrigger = ref(null)
+let desktopMedia
+let savedBodyOverflow
+function closeMenu(restoreFocus = false) {
+  mobileMenu.value = false
+  if (restoreFocus) nextTick(() => menuTrigger.value?.focus())
+}
+function onBreakpointChange() {
+  if (desktopMedia?.matches) closeMenu()
+}
 const dialog = ref(null)
 const saving = ref(false)
 const loggingOut = ref(false)
@@ -38,9 +48,18 @@ const feedback = ref('')
 let dialogTrigger = null
 watch(dialog, value => {
   if (!import.meta.client) return
-  document.body.style.overflow = value ? 'hidden' : ''
   if (!value) nextTick(() => dialogTrigger?.focus())
 })
+watch([dialog, mobileMenu], ([activeDialog, activeMenu]) => {
+  if (!import.meta.client) return
+  if (activeDialog || activeMenu) {
+    if (savedBodyOverflow === undefined) savedBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  } else if (savedBodyOverflow !== undefined) {
+    document.body.style.overflow = savedBodyOverflow
+    savedBodyOverflow = undefined
+  }
+}, { flush: 'sync' })
 const recordForm = reactive({ title: '', category: 'activity', amount: '', note: '' })
 const reminderForm = reactive({ title: '', date: '' })
 const today = new Date().toLocaleDateString('en-CA')
@@ -107,7 +126,7 @@ async function logout() {
   loggingOut.value = true; error.value = ''
   try { await $fetch('/api/auth/logout', { method: 'POST' }); clearNuxtData(); await navigateTo('/login') } catch (e) { error.value = apiMessage(e); loggingOut.value = false }
 }
-function onEscape(event) { if (event.key === 'Escape') { closeDialog(); mobileMenu.value = false } }
+function onEscape(event) { if (event.key === 'Escape') { closeDialog(); if (mobileMenu.value) closeMenu(true) } }
 function trapFocus(event) {
   if (event.key !== 'Tab') return
   const elements = [...event.currentTarget.querySelectorAll('button:not([disabled]),input:not([disabled]),select,textarea')]
@@ -115,22 +134,31 @@ function trapFocus(event) {
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
-onMounted(() => window.addEventListener('keydown', onEscape))
-onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.body.style.overflow = '' })
+onMounted(() => {
+  desktopMedia = window.matchMedia('(min-width: 1024px)')
+  desktopMedia.addEventListener('change', onBreakpointChange)
+  window.addEventListener('keydown', onEscape)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onEscape)
+  desktopMedia?.removeEventListener('change', onBreakpointChange)
+  if (savedBodyOverflow !== undefined) document.body.style.overflow = savedBodyOverflow
+})
 </script>
 
 <template>
   <div class="dashboard min-h-screen bg-[#F5F6F0] text-[#193D2B]">
-    <aside class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto border-r border-[#DCE5D8] bg-[#FAFBF7] px-5 py-7 transition-transform lg:translate-x-0 lg:visible" :class="mobileMenu ? 'visible translate-x-0' : 'invisible -translate-x-full'">
+    <aside id="dashboard-navigation" class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto border-r border-[#DCE5D8] bg-[#FAFBF7] px-5 py-7 transition-transform lg:visible lg:translate-x-0 lg:pointer-events-auto" :class="mobileMenu ? 'visible translate-x-0 pointer-events-auto' : 'invisible -translate-x-full pointer-events-none'">
+      <button type="button" aria-label="Close dashboard navigation" class="mb-4 ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#066136] hover:bg-[#EDF1E6] lg:hidden" @click="closeMenu(true)"><X :size="22" aria-hidden="true" /></button>
       <NuxtLink to="/" class="mb-10 flex items-center gap-2.5 px-2 text-2xl font-extrabold tracking-tight text-[#066136]"><span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#066136] text-[#F9C23C]"><Sprout :size="24" aria-hidden="true" /></span>FarmBuddy<span class="-ml-2 text-[#C49C23]">.</span></NuxtLink>
       <p class="px-4 text-[10px] font-bold uppercase tracking-[0.2em] text-[#7C8D7A]">Your workspace</p>
       <nav class="mt-4 space-y-2" aria-label="Dashboard navigation"><button v-for="item in nav" :key="item.id" type="button" class="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition" :class="section === item.id ? 'bg-[#066136] text-white shadow-md shadow-[#066136]/10' : 'text-[#62745F] hover:bg-[#EDF1E6]'" :aria-current="section === item.id ? 'page' : undefined" @click="chooseSection(item.id)"><component :is="item.icon" :size="19" aria-hidden="true" />{{ item.label }}<span v-if="item.id === 'reminders' && pending.length" class="ml-auto rounded-md bg-[#F9C23C] px-1.5 py-0.5 text-[10px] text-[#064B32]">{{ pending.length }}</span></button></nav>
       <div class="mt-auto pt-8"><button type="button" class="flex w-full items-center gap-3 rounded-2xl border border-[#DCE5D8] bg-white p-3 text-left hover:bg-[#EDF1E6]" aria-label="Open My farm profile" @click="chooseSection('profile')"><span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F9C23C] text-sm font-bold text-[#193D2B]" aria-hidden="true">{{ farmerInitials }}</span><span class="min-w-0"><span class="block truncate text-sm font-bold">{{ user.name || 'Farmer' }}</span><span class="mt-1 block text-xs text-[#526C46]">Farm owner</span></span></button></div>
     </aside>
-    <button v-if="mobileMenu" type="button" aria-label="Close sidebar" class="fixed inset-0 z-30 bg-[#092D20]/35 lg:hidden" @click="mobileMenu = false" />
+    <button v-if="mobileMenu" id="dashboard-menu-backdrop" type="button" aria-label="Close sidebar" class="fixed inset-0 z-30 bg-[#092D20]/35 lg:hidden" @click="closeMenu(true)" />
     <div class="lg:pl-64">
       <header class="flex min-h-20 items-center justify-between gap-4 border-b border-[#DFE6D9] bg-white/70 px-5 py-4 sm:px-8">
-        <div class="flex items-center gap-3"><button type="button" aria-label="Open dashboard navigation" :aria-expanded="mobileMenu" class="rounded-lg p-2 hover:bg-[#EDF1E6] lg:hidden" @click="mobileMenu = !mobileMenu"><Menu :size="22" /></button><button type="button" class="inline-flex items-center gap-2 rounded-xl border border-[#DCE5D8] px-3 py-2 text-xs font-semibold text-[#066136]" aria-label="Open Farm Watch weather and health notifications" @click="chooseSection('weather')"><Bell :size="17" />Farm Watch<span v-if="unreadWatch" class="rounded-full bg-[#F9C23C] px-2 py-0.5 text-[10px]" :aria-label="`${unreadWatch} unread notifications`">{{ unreadWatch }}</span></button></div>
+        <div class="flex items-center gap-3"><button ref="menuTrigger" id="dashboard-menu-toggle" type="button" :aria-label="mobileMenu ? 'Close dashboard navigation' : 'Open dashboard navigation'" aria-controls="dashboard-navigation" :aria-expanded="mobileMenu" class="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-[#EDF1E6] lg:hidden" @click="mobileMenu = !mobileMenu"><component :is="mobileMenu ? X : Menu" :size="22" aria-hidden="true" /></button><button type="button" class="inline-flex items-center gap-2 rounded-xl border border-[#DCE5D8] px-3 py-2 text-xs font-semibold text-[#066136]" aria-label="Open Farm Watch weather and health notifications" @click="chooseSection('weather')"><Bell :size="17" />Farm Watch<span v-if="unreadWatch" class="rounded-full bg-[#F9C23C] px-2 py-0.5 text-[10px]" :aria-label="`${unreadWatch} unread notifications`">{{ unreadWatch }}</span></button></div>
       </header>
       <main class="mx-auto max-w-[1440px]" :class="section === 'assistant' ? 'px-2 py-3 sm:px-5 sm:py-5' : 'px-5 py-7 sm:px-8 sm:py-9'">
         <p v-if="feedback" role="status" class="mb-5 rounded-xl border border-[#CFE1C4] bg-[#E8F2E0] px-4 py-3 text-sm text-[#32673B]">{{ feedback }}</p>
