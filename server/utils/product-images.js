@@ -225,7 +225,8 @@ export function visiblePhoto(data, id, ownerId) {
   if (!asset) fail(404, 'Photo unavailable')
   if (ownerId === asset.ownerId) return asset
   const visibleFarm = data.marketplaceFarms?.some(farm => farm.ownerId === asset.ownerId && farm.published === true)
+  const visibleCover = data.marketplaceFarms?.some(farm => farm.ownerId === asset.ownerId && farm.published === true && farm.coverImageUrl === imageUrl(id))
   const visibleProduct = data.marketplaceProducts?.some(product => product.ownerId === asset.ownerId && product.published === true && product.imageUrl === imageUrl(id))
-  if (!visibleFarm || !visibleProduct) fail(404, 'Photo unavailable')
+  if (!visibleCover && !(visibleFarm && visibleProduct)) fail(404, 'Photo unavailable')
   return asset
 }

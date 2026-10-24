@@ -32,16 +32,27 @@ function arrays(data) {
   if (!Array.isArray(data.marketplaceFarms) || !Array.isArray(data.marketplaceProducts)) throw new Error('Invalid marketplace store')
 }
 const productCard = p => ({ id: p.id, name: p.name, description: p.description, price: p.price, currency: p.currency, quantity: p.quantity, unit: p.unit, imageUrl: p.imageUrl, published: p.published === true })
+const themes = ['green', 'teal', 'sage']
+function appearanceText(value, max) {
+  if (typeof value === 'string' && /[\u0080-\u009f]/.test(value)) fail(400, 'Use valid plain text')
+  return text(value, max)
+}
+function appearance(data, farm = {}) {
+  const plain = (value, max) => { try { return appearanceText(value ?? '', max) } catch { return '' } }
+  let coverImageUrl = ''
+  try { coverImageUrl = safeImage(farm.coverImageUrl ?? '', data, farm.ownerId) } catch {}
+  return { headline: plain(farm.headline, 80), tagline: plain(farm.tagline, 160), coverImageUrl, theme: themes.includes(farm.theme) ? farm.theme : 'green', showHero: typeof farm.showHero === 'boolean' ? farm.showHero : true }
+}
 export function ownerCatalog(data, ownerId) {
   arrays(data)
   const farm = data.marketplaceFarms.find(f => f.ownerId === ownerId)
-  return { farm: farm ? { slug: farm.slug, name: farm.name, contact: farm.contact, contactConsent: farm.contactConsent === true, published: farm.published === true } : { slug: '', name: '', contact: '', contactConsent: false, published: false }, products: data.marketplaceProducts.filter(p => p.ownerId === ownerId).map(productCard) }
+  return { farm: { ...(farm ? { slug: farm.slug, name: farm.name, contact: farm.contact, contactConsent: farm.contactConsent === true, published: farm.published === true } : { slug: '', name: '', contact: '', contactConsent: false, published: false }), ...appearance(data, farm) }, products: data.marketplaceProducts.filter(p => p.ownerId === ownerId).map(productCard) }
 }
 export function publicCatalog(data, slug) {
   arrays(data)
   const farm = data.marketplaceFarms.find(f => f.slug === slug && f.published === true)
   if (!farm) fail(404, 'Storefront unavailable')
-  return { farm: { slug: farm.slug, name: farm.name, contact: farm.contactConsent === true ? farm.contact : '' }, products: data.marketplaceProducts.filter(p => p.ownerId === farm.ownerId && p.published === true).map(productCard) }
+  return { farm: { slug: farm.slug, name: farm.name, contact: farm.contactConsent === true ? farm.contact : '', ...appearance(data, farm) }, products: data.marketplaceProducts.filter(p => p.ownerId === farm.ownerId && p.published === true).map(productCard) }
 }
 export function mutateCatalog(data, ownerId, input) {
   arrays(data)
@@ -53,6 +64,19 @@ export function mutateCatalog(data, ownerId, input) {
     if (contact && !input.contactConsent) fail(400, 'Consent is required to publish contact details')
     const fields = { slug, name: text(input.name, 100, true), contact, contactConsent: input.contactConsent, published: input.published }
     const farm = data.marketplaceFarms.find(f => f.ownerId === ownerId)
+    const customization = appearance(data, farm)
+    if (Object.hasOwn(input, 'headline')) customization.headline = appearanceText(input.headline, 80)
+    if (Object.hasOwn(input, 'tagline')) customization.tagline = appearanceText(input.tagline, 160)
+    if (Object.hasOwn(input, 'coverImageUrl')) customization.coverImageUrl = safeImage(input.coverImageUrl, data, ownerId)
+    if (Object.hasOwn(input, 'theme')) {
+      if (!themes.includes(input.theme)) fail(400, 'Choose a supported storefront theme')
+      customization.theme = input.theme
+    }
+    if (Object.hasOwn(input, 'showHero')) {
+      if (typeof input.showHero !== 'boolean') fail(400, 'Choose whether to show the storefront hero')
+      customization.showHero = input.showHero
+    }
+    Object.assign(fields, customization)
     if (farm) Object.assign(farm, fields)
     else data.marketplaceFarms.push({ ownerId, ...fields })
   } else if (input.action === 'saveProduct') {

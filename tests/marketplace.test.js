@@ -59,7 +59,7 @@ test('marketplace HTTP ownership, privacy, persistence, CSRF and publication lif
     const visible = (await request('/api/storefront/green-acre')).body
     assert.equal(visible.products.length, 1)
     assert.equal(visible.farm.contact, configure.contact)
-    assert.deepEqual(Object.keys(visible.farm).sort(), ['contact', 'name', 'slug'])
+    assert.deepEqual(Object.keys(visible.farm).sort(), ['contact', 'coverImageUrl', 'headline', 'name', 'showHero', 'slug', 'tagline', 'theme'])
     for (const secret of ['Alice', 'private.example', 'PRIVATE FARM PROFILE', 'ownerId', 'userId', 'password', 'tokenHash']) assert.ok(!JSON.stringify(visible).includes(secret), secret)
     assert.equal((await request('/api/marketplace', 'GET', undefined, b.cookie)).body.products.length, 0)
     const persisted = JSON.parse(await readFile(process.env.FARMBUDDY_DATA_FILE, 'utf8'))
