@@ -15,7 +15,7 @@ function setup(fetcher, mode = 'community', geolocation = { getCurrentPosition()
   const props = reactive({ user: { id: 'one', farmName: 'First farm' }, mode })
   const scope = effectScope()
   let unmount, mount
-  const context = vm.createContext({ ref, reactive, computed, watch, nextTick, AbortController, MapPin: null, LoaderCircle: null,
+  const context = vm.createContext({ ref, reactive, computed, watch, nextTick, AbortController, MapPin: null, MapIcon: null, ShieldCheck: null, Users: null, Search: null, UserPlus: null, EyeOff: null, RefreshCw: null, Check: null, X: null, Ban: null, Sprout: null, CloudSun: null, LoaderCircle: null,
     onMounted: callback => { mount = callback }, onUnmounted: callback => { unmount = callback }, navigator: { geolocation },
     window: { confirm: () => true, matchMedia: () => ({ matches: false }) }, document: { getElementById: () => null }, $fetch: fetcher })
   vm.runInContext(compiled.content.replace(/^import .*$/gm, '').replace('export default', 'globalThis.component ='), context)
@@ -38,6 +38,35 @@ test('component script, template and styles compile with shared UI and privacy c
   assert.match(source, /request.status === 'accepted' && request.contact/)
   assert.match(source, /0.1°/)
   assert.match(source, /tile provider/)
+})
+
+test('map workspace leads profile editing and keeps provider and publishing consent separate', () => {
+  const template = descriptor.template.content
+  assert.ok(template.indexOf('id="nearby-farmer-map"') < template.indexOf('class="profile-editor'))
+  assert.match(template, /<FarmerMap v-if="mapPoint"/)
+  assert.match(template, /Close external map/)
+  assert.match(template, /Looking around does not make you discoverable/)
+  assert.match(template, /<details class="manual-area"/)
+  assert.match(template, /<details class="profile-editor/)
+  assert.match(template, /v-model="sharing.consent" type="checkbox" required/)
+  assert.match(source, /min-height:44px/)
+  assert.match(source, /prefers-reduced-motion:reduce/)
+  assert.match(source, /summary:focus-visible/)
+})
+
+test('map can be closed without publishing a profile, changing results or fetching again', async () => {
+  const calls = []
+  const app = setup((path, options) => { calls.push({ path, options }); return Promise.resolve(empty()) })
+  await flush()
+  coordinates(app.state)
+  app.state.loadMap()
+  assert.equal(app.state.mapPoint.value.latitude, 7.5)
+  app.state.mapPoint.value = null
+  assert.equal(app.state.mapPoint.value, null)
+  assert.equal(app.state.community.value.profile.visible, false)
+  assert.equal(app.state.sharing.consent, false)
+  assert.equal(calls.length, 1)
+  app.stop()
 })
 
 test('initial load is busy, fails honestly, retries without automatic network retries', async () => {
