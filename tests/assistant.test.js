@@ -110,7 +110,7 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   const reply = content => ({ choices: [{ message: { content } }] })
   const env = native(async (model, options) => {
     request = { model, options }
-    return reply('Inspect leaves and ask your extension officer.')
+    return { object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Inspect leaves and ask your extension officer.' }] }] }
   })
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () => assert.fail('Chat must never make outbound HTTP calls')
@@ -159,12 +159,13 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   const long = await assistantChat(input, {}, native(async () => reply('x'.repeat(7000))))
   assert.equal(long.text.length, 6000)
   await assistantChat(input, {}, env)
-  assert.equal(result.model, '@cf/qwen/qwen3-30b-a3b-fp8')
+  assert.equal(result.model, '@cf/openai/gpt-oss-120b')
   assert.equal(request.model, result.model)
   assert.equal(request.options.stream, false)
   assert.equal(request.options.max_tokens, 1000)
   assert.equal(request.options.messages[0].role, 'system')
   assert.equal(request.options.tools, undefined)
+  assert.ok(!request.options.messages[0].content.includes('/no_think'))
   assert.match(request.options.messages[0].content, /Never give definitive/)
   assert.ok(!request.options.messages[0].content.includes('private@example.com'))
   process.env.YARNGPT_API_KEY = 'test-voice-never-live'
@@ -226,6 +227,53 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   assert.throws(() => assistantLimit('rate-test'), errorStatus(429))
   delete process.env.FARMBUDDY_AI_MODEL
   delete process.env.YARNGPT_API_KEY
+})
+
+test('GPT-OSS Responses output exposes only completed assistant final text and retains Qwen overrides', async () => {
+  const message = content => ({ type: 'message', role: 'assistant', status: 'completed', content })
+  const text = value => ({ type: 'output_text', text: value })
+  const answer = message([text('Inspect leaves.'), text('Ask an extension officer.')])
+  const response = output => ({ object: 'response', status: 'completed', output })
+  const run = payload => assistantChat(input, {}, { FARMBUDDY_AI_MODEL: '@cf/openai/gpt-oss-120b', AI: { run: async () => payload } })
+  const result = await run(response([
+    { type: 'reasoning', summary: [{ type: 'summary_text', text: 'private reasoning' }], content: [text('private analysis')] },
+    { type: 'function_call', arguments: 'private tool data' },
+    { ...message([text('private commentary')]), phase: 'commentary' },
+    { ...message([text('private user text')]), role: 'user' },
+    answer,
+  ]))
+  assert.equal(result.text, 'Inspect leaves.\nAsk an extension officer.')
+  assert.equal(result.model, '@cf/openai/gpt-oss-120b')
+  assert.ok(!JSON.stringify(result).includes('private'))
+  for (const payload of [
+    response([]), response([{ type: 'reasoning', summary: [text('secret')] }]),
+    response([message([])]), response([message([text('  ')])]),
+    response([message([text({ secret: true })])]), response([message([null])]),
+    response([message([{ type: 'reasoning_text', text: 'secret' }])]),
+    response([message([{ type: 'refusal', refusal: 'secret' }])]),
+    response([{ ...answer, status: 'incomplete' }]),
+    { ...response([answer]), status: 'failed' },
+    { ...response([answer]), status: 'in_progress' },
+    { ...response([answer]), status: 'incomplete' },
+    { ...response([answer]), incomplete_details: { reason: 'max_output_tokens' } },
+    { ...response([answer]), error: { message: 'secret' } },
+    response([message([text('<|channel|>analysis secret')])]),
+    response([message([text('<think>unfinished secret')])]),
+    response([message([text('x'.repeat(128001))])]),
+    { output: null, choices: [{ message: { content: 'Do not fall back' } }] },
+    { output_text: 'Do not trust an unstructured shortcut' },
+  ]) await assert.rejects(run(payload), error => error.statusCode === 502 && !error.message.includes('secret'))
+  assert.equal((await run(response([message([text('<think>secret</think>Safe advice.')])]))).text, 'Safe advice.')
+  assert.equal((await run(response([message([text('x'.repeat(7000))])]))).text.length, 6000)
+  const qwen = await assistantChat(input, {}, {
+    FARMBUDDY_AI_MODEL: '@cf/qwen/qwen3-30b-a3b-fp8',
+    AI: { run: async (model, options) => {
+      assert.equal(model, '@cf/qwen/qwen3-30b-a3b-fp8')
+      assert.match(options.messages[0].content, /\/no_think/)
+      return { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'Safe Qwen advice.', reasoning_content: 'secret' } }] }
+    } },
+  })
+  assert.equal(qwen.text, 'Safe Qwen advice.')
 })
 
 test('production speech succeeds in workerd and refuses redirects without forwarding text or bearer keys', { timeout: 60000 }, async () => {

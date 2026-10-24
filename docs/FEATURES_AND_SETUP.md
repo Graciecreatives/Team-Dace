@@ -22,7 +22,7 @@ npm run dev
 Visit localhost port 3000. Register, complete onboarding, and open a tool from the dashboard sidebar. Existing users without onboarding are asked to complete it. Crops route to `/dashboard/crops`, livestock/poultry to `/dashboard/livestock`, and mixed farms to `/dashboard`.
 
 ## Enable AI and voice
-1. Cloudflare supplies chat through the private `AI` binding in `wrangler.jsonc`. No chat API key is needed in `.env`. The deployed Worker uses `FARMBUDDY_AI_MODEL=@cf/qwen/qwen3-30b-a3b-fp8`.
+1. Cloudflare supplies chat through the private `AI` binding in `wrangler.jsonc`. No chat API key is needed in `.env`. The deployed Worker uses `FARMBUDDY_AI_MODEL=@cf/openai/gpt-oss-120b`.
 2. For local native chat use `npm run cf:dev`, which uses real remote Workers AI inference and your account quota. Plain Nuxt `dev` / `host` has no AI binding and reports chat unavailable. This text model does not accept photos. Use the separate specialist scanners for supported photo tasks.
 3. Add optional `YARNGPT_API_KEY` and `YARNGPT_VOICE` to private `.env`. Voice may be blank for the provider default. Upload external secrets with `npm run cf:secrets -- --apply`. Change production model configuration in `wrangler.jsonc` and redeploy.
 4. Open FarmBuddyAI. Sending a question shares selected farm profile fields, conversation context and optionally selected operational records with Cloudflare Workers AI. Farm records remain opt-in.
@@ -76,7 +76,7 @@ The API integration suites use isolated temporary data stores. The corruption te
 
 ## Official references checked October 23, 2026
 - Cloudflare native AI bindings: https://developers.cloudflare.com/workers-ai/configuration/bindings/
-- Qwen3 native text model: https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/
+- GPT-OSS 120B native text model: https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
 - YarnGPT voice API: https://www.yarngpt.ai/api-docs
 - OpenWeather five-day / three-hour forecast: https://openweathermap.org/api/forecast5
 - OpenWeather free access pricing (separate from One Call): https://openweathermap.org/price

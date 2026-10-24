@@ -18,7 +18,7 @@ if (animalFlag === 'true' && secrets.ROBOFLOW_API_KEY) secrets.FARMBUDDY_EXPERIM
 else if (animalFlag === 'false' || secrets.ROBOFLOW_API_KEY) secrets.FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN = 'false'
 if (args.includes('--local')) {
   // A dedicated .dev.vars prevents Wrangler importing unrelated values from .env.
-  const local = { ...secrets, NODE_ENV: 'development', FARMBUDDY_AUTH: 'cloudflare', FARMBUDDY_DATABASE: 'cloudflare', FARMBUDDY_IMAGE_STORAGE: 'cloudflare', FARMBUDDY_AI_MODEL: process.env.FARMBUDDY_AI_MODEL || values.FARMBUDDY_AI_MODEL || '@cf/qwen/qwen3-30b-a3b-fp8' }
+  const local = { ...secrets, NODE_ENV: 'development', FARMBUDDY_AUTH: 'cloudflare', FARMBUDDY_DATABASE: 'cloudflare', FARMBUDDY_IMAGE_STORAGE: 'cloudflare', FARMBUDDY_AI_MODEL: process.env.FARMBUDDY_AI_MODEL || values.FARMBUDDY_AI_MODEL || '@cf/openai/gpt-oss-120b' }
   await writeFile('.dev.vars', Object.entries(local).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + '\n', { mode: 0o600 })
   console.log('Private local Worker configuration prepared. No secret values printed.')
 } else if (!args.includes('--apply')) {

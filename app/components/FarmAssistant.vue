@@ -372,7 +372,7 @@ onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', upd
 
       <ol v-if="messages.length" class="conversation" aria-label="Conversation" aria-live="polite">
         <li v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
-          <p class="message-author">{{ message.role === 'user' ? 'You' : `FarmBuddyAI · ${message.model}` }}</p>
+          <p class="message-author">{{ message.role === 'user' ? 'You' : 'FarmBuddyAI' }}</p>
           <p class="message-content">{{ message.content }}</p>
           <p v-if="message.photo" class="message-note">Photo shared with this question.</p>
           <p v-if="message.role === 'assistant'" class="message-note">{{ message.contextUsed ? 'Used a limited snapshot of your own farm records.' : 'No farm-record snapshot shared for this answer.' }}</p>

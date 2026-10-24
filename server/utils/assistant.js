@@ -19,7 +19,7 @@ export function assistantLimit(userId) {
   if (++item.count > 10) fail(429, 'Please wait before asking again')
 }
 const present = key => typeof process.env[key] === 'string' && Boolean(process.env[key].trim())
-const assistantModel = env => (env?.FARMBUDDY_AI_MODEL?.trim() || process.env.FARMBUDDY_AI_MODEL?.trim() || '@cf/qwen/qwen3-30b-a3b-fp8')
+const assistantModel = env => (env?.FARMBUDDY_AI_MODEL?.trim() || process.env.FARMBUDDY_AI_MODEL?.trim() || '@cf/openai/gpt-oss-120b')
 const validModel = model => /^@cf\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.:-]+$/.test(model) && model.length <= 200
 export async function assistantEnvironment(event) {
   if (event?.context?.cloudflare?.env) return event.context.cloudflare.env
@@ -110,20 +110,46 @@ export async function assistantChat(input, user, env, serverContext) {
     // Native run has no documented cancellation option. Bound request waiting,
     // without claiming that the underlying inference is cancelled on timeout.
     const result = await Promise.race([
-      env.AI.run(model, { messages: [{ role: 'system', content: `${assistantPrompt(user, task)}\n${contextPrompt}\nReturn only the final answer, never internal reasoning. /no_think` }, ...messages], stream: false, max_tokens: 1000 }),
+      env.AI.run(model, { messages: [{ role: 'system', content: `${assistantPrompt(user, task)}\n${contextPrompt}\nReturn only the final answer, never internal reasoning.${model.startsWith('@cf/qwen/') ? ' /no_think' : ''}` }, ...messages], stream: false, max_tokens: 1000 }),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('AI timeout')), 45000) })
     ])
     if (!result || result.error || JSON.stringify(result).length > 128000) throw new Error('Invalid response')
-    // Qwen's documented native synchronous schema is chat.completion, not
-    // the legacy Workers AI { response } shape. Never expose reasoning_content.
-    const content = result.choices?.[0]?.message?.content
-    const text = typeof content === 'string' ? finalAnswer(content) : ''
+    const text = responseAnswer(result)
     if (!text) throw new Error('Empty response')
     return { text: text.slice(0, 6000), model, contextUsed, contextMetadata, sources, disclaimer: 'AI guidance, not a professional diagnosis. Verify with a qualified local expert.' }
   } catch { fail(502, 'AI service is unavailable. Please try again later.') }
   finally { clearTimeout(timer) }
 }
+function responseAnswer(result) {
+  // GPT-OSS native binding returns Responses API output, not chat.completion.
+  // Only assistant message output_text is public. Ignore reasoning and tool items,
+  // including reasoning summaries, and never stringify arbitrary provider fields.
+  if (result.status !== undefined && result.status !== 'completed') return ''
+  if (result.incomplete_details) return ''
+  if ('output' in result) {
+    if (!Array.isArray(result.output)) return ''
+    const parts = []
+    for (const item of result.output) {
+      if (item?.type !== 'message' || item.role !== 'assistant') continue
+      if (item.status !== undefined && item.status !== 'completed') return ''
+      if (item.phase !== undefined && item.phase !== 'final_answer') continue
+      if (!Array.isArray(item.content)) return ''
+      for (const part of item.content) {
+        if (part?.type !== 'output_text' || typeof part.text !== 'string') return ''
+        parts.push(part.text)
+      }
+    }
+    return finalAnswer(parts.join('\n'))
+  }
+  // Preserve Qwen's native chat.completion contract for explicit overrides.
+  const choice = result.choices?.[0]
+  if (choice?.finish_reason && choice.finish_reason !== 'stop') return ''
+  const message = choice?.message
+  if (message?.role !== undefined && message.role !== 'assistant') return ''
+  return typeof message?.content === 'string' ? finalAnswer(message.content) : ''
+}
 function finalAnswer(content) {
+  if (/<\|[^>]*\|>/.test(content)) return ''
   // Fail closed on truncated, nested or unmatched reasoning delimiters.
   let inside = false
   for (const match of content.matchAll(/<\/?think\b[^>]*>/gi)) {

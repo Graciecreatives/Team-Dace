@@ -16,6 +16,11 @@ test('assistant SFC compiles script, template and scoped styles', () => {
   assert.deepEqual(compileStyle({ source: css, id: 'chat-layout', scoped: true }).errors, [])
 })
 
+test('chat labels use the assistant name, not technical model identifiers', () => {
+  assert.match(descriptor.template.content, /message\.role === 'user' \? 'You' : 'FarmBuddyAI'/)
+  assert.doesNotMatch(descriptor.template.content, /message\.model/)
+})
+
 test('chat keeps composer outside its bounded scrolling history', () => {
   const rules = [...css.matchAll(/\.conversation\s*\{([^}]+)\}/g)].map(match => match[1]).join('\n')
   assert.match(rules, /flex:\s*1/)
