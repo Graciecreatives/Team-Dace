@@ -1,11 +1,34 @@
+import { isIP } from 'node:net'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createError, defineEventHandler, deleteCookie, getCookie, getHeader, getRequestIP, getRequestURL, setCookie, setHeader } from 'h3'
 import { store } from '../utils/store.js'
-import { authConfig, hashPassword, verifyPassword } from '../utils/auth.js'
+import { authConfig, hashPassword, verifyPassword, passwordNeedsUpgrade } from '../utils/auth.js'
 
 const cookieName = 'farmbuddy_session'
 const lifetime = 7 * 24 * 60 * 60
-const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' }
+function platformRequest(event) {
+  const request = event.context?.cloudflare?.request
+  return typeof Request !== 'undefined' && request instanceof Request ? request : null
+}
+function platformURL(event) {
+  const request = platformRequest(event)
+  if (!request) return null
+  let url
+  try { url = new URL(request.url) } catch { fail(403, 'Invalid platform request URL') }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) fail(403, 'Invalid platform request URL')
+  return url
+}
+function cookieOptions(event) {
+  const trustedURL = platformURL(event)
+  return { httpOnly: true, sameSite: 'lax', secure: trustedURL ? trustedURL.protocol === 'https:' : process.env.NODE_ENV === 'production', path: '/' }
+}
+function authenticationClientIP(event) {
+  // Read edge-injected IP only from Nitro's original platform Request, never a
+  // client-controlled Node header or forwarded header. Workers overwrite it at ingress.
+  const edgeIP = platformRequest(event)?.headers.get('cf-connecting-ip')
+  if (edgeIP && isIP(edgeIP)) return edgeIP
+  return getRequestIP(event, { xForwardedFor: false }) || 'unknown'
+}
 const digest = value => createHash('sha256').update(value).digest('hex')
 const fail = (statusCode, statusMessage) => { throw createError({ statusCode, statusMessage }) }
 const publicUser = ({ id, name, email, farmName, farmType, onboardingCompleted, location = '', mainEnterprises = '', preferredLanguage = '' }) => ({ id, name, email, farmName, farmType, onboardingCompleted: onboardingCompleted === true, location, mainEnterprises, preferredLanguage })
@@ -15,7 +38,7 @@ const buckets = new Map()
 function throttle(event) {
   const now = Date.now()
   for (const [key, value] of buckets) if (value.until <= now) buckets.delete(key)
-  const key = getRequestIP(event) || 'unknown'
+  const key = authenticationClientIP(event)
   let bucket = buckets.get(key)
   if (!bucket) {
     if (buckets.size >= 10000) fail(429, 'Authentication temporarily busy')
@@ -35,8 +58,15 @@ function mutationGuard(event) {
   if (origin) {
     let parsed
     try { parsed = new URL(origin) } catch { fail(403, 'Invalid origin') }
-    const expectedProtocol = cookieOptions.secure ? 'https:' : getRequestURL(event, { xForwardedHost: false, xForwardedProto: false }).protocol
-    if (parsed.origin !== origin || parsed.host !== host || parsed.protocol !== expectedProtocol) fail(403, 'Cross-origin request denied')
+    const trustedURL = platformURL(event)
+    if (trustedURL) {
+      // Nitro's internal localFetch host loses the public port/protocol. The original
+      // platform Request URL is authoritative, not Host/X-Forwarded-* headers.
+      if (parsed.origin !== origin || parsed.origin !== trustedURL.origin) fail(403, 'Cross-origin request denied')
+    } else {
+      const expectedProtocol = cookieOptions(event).secure ? 'https:' : getRequestURL(event, { xForwardedHost: false, xForwardedProto: false }).protocol
+      if (parsed.origin !== origin || parsed.host !== host || parsed.protocol !== expectedProtocol) fail(403, 'Cross-origin request denied')
+    }
   }
   if (getHeader(event, 'sec-fetch-site') === 'cross-site') fail(403, 'Cross-site request denied')
 }
@@ -166,7 +196,7 @@ export default defineEventHandler(async event => {
       const found = await store(data => data.users.find(item => item.email === email))
       const valid = await verifyPassword(password, found)
       if (!valid) fail(401, 'Invalid email or password')
-      const upgraded = !found.passwordHash.startsWith('pbkdf2-sha256$') ? await hashPassword(password, found.salt) : null
+      const upgraded = passwordNeedsUpgrade(found.passwordHash) ? await hashPassword(password, found.salt) : null
       user = await store(data => {
         const current = data.users.find(item => item.id === found.id && item.passwordHash === found.passwordHash && item.salt === found.salt)
         if (!current) fail(401, 'Invalid email or password')
@@ -175,7 +205,7 @@ export default defineEventHandler(async event => {
         return publicUser(current)
       }, true)
     }
-    setCookie(event, cookieName, rawToken, { ...cookieOptions, maxAge: lifetime })
+    setCookie(event, cookieName, rawToken, { ...cookieOptions(event), maxAge: lifetime })
     return { user }
   }
   if (method === 'GET' && path === '/api/auth/me') {
@@ -183,7 +213,7 @@ export default defineEventHandler(async event => {
   }
   if (method === 'POST' && path === '/api/auth/logout') {
     await store(data => { data.sessions = data.sessions.filter(item => item.tokenHash !== token(event) && item.expiresAt > Date.now()) }, true)
-    deleteCookie(event, cookieName, cookieOptions)
+    deleteCookie(event, cookieName, cookieOptions(event))
     return { ok: true }
   }
   if (method === 'PATCH' && path === '/api/farm/profile') {
@@ -296,4 +326,4 @@ export default defineEventHandler(async event => {
   fail(404, 'API endpoint not found')
 })
 
-export { authenticated, mutationGuard, body, fail, publicUser }
+export { authenticated, mutationGuard, body, fail, publicUser, authenticationClientIP, cookieOptions }

@@ -184,7 +184,7 @@ try {
   assert.ok(!JSON.stringify(disk).includes(rawToken))
   assert.ok(!JSON.stringify(disk).includes(account.password))
   assert.ok(disk.sessions.some(s => s.tokenHash === createHash('sha256').update(rawToken).digest('hex')))
-  assert.equal(disk.users[0].passwordHash.length, 128)
+  assert.match(disk.users[0].passwordHash, /^scrypt\$16384\$8\$5\$[a-f0-9]{128}$/)
   assert.equal(disk.users[0].salt.length, 32)
   // A separate process verifies persistence independently of the running handler.
   const restart = spawnSync(process.execPath, ['--input-type=module', '-e', `import { store } from './server/utils/store.js'; const count = await store(d => d.records.length); if (count !== 14) process.exit(1)`], { env: process.env, encoding: 'utf8' })

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { scryptSync } from 'node:crypto'
+import { scryptSync, pbkdf2Sync } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,7 +17,7 @@ test('app auth configuration accepts local and Cloudflare only', () => {
 test('portable hashes verify and malformed hashes fail safely', async () => {
   const salt = '01'.repeat(16)
   const passwordHash = await hashPassword('correct-password', salt)
-  assert.match(passwordHash, /^pbkdf2-sha256\$100000\$[a-f0-9]{64}$/)
+  assert.match(passwordHash, /^scrypt\$16384\$8\$5\$[a-f0-9]{128}$/)
   assert.equal(await verifyPassword('correct-password', { salt, passwordHash }), true)
   assert.equal(await verifyPassword('wrong-password', { salt, passwordHash }), false)
   for (const malformed of ['abc', 'f'.repeat(127), 'pbkdf2-sha256$999999999$' + 'f'.repeat(64)]) {
@@ -27,6 +27,9 @@ test('portable hashes verify and malformed hashes fail safely', async () => {
   const legacy = scryptSync('original-password', salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex')
   assert.equal(await verifyPassword('original-password', { salt, passwordHash: legacy }), true)
   assert.equal(await verifyPassword('wrong-password', { salt, passwordHash: legacy }), false)
+  const interim = 'pbkdf2-sha256$100000$' + pbkdf2Sync('interim-password', salt, 100000, 32, 'sha256').toString('hex')
+  assert.equal(await verifyPassword('interim-password', { salt, passwordHash: interim }), true)
+  assert.equal(await verifyPassword('wrong-password', { salt, passwordHash: interim }), false)
 })
 
 test('store-owned authentication over HTTP preserves sessions, CSRF, ownership and legacy passwords', async t => {
@@ -65,7 +68,7 @@ test('store-owned authentication over HTTP preserves sessions, CSRF, ownership a
       assert.match(registered.cookies[0], /SameSite=Lax/i)
       cookie = registered.cookies[0].split(';')[0]
       const snapshot = await store(data => data)
-      assert.match(snapshot.users[0].passwordHash, /^pbkdf2-sha256\$/)
+      assert.match(snapshot.users[0].passwordHash, /^scrypt\$16384\$8\$5\$/)
       assert.equal(JSON.stringify(snapshot).includes(cookie.split('=')[1]), false)
       assert.equal((await request('/api/auth/me', 'GET', undefined, cookie)).body.user.id, userId)
       assert.equal((await request('/api/auth/register', 'POST', details)).status, 409)
@@ -103,9 +106,17 @@ test('store-owned authentication over HTTP preserves sessions, CSRF, ownership a
       const login = await request('/api/auth/login', 'POST', details)
       assert.equal(login.status, 200)
       assert.equal(login.body.user.id, userId)
-      assert.match(await store(data => data.users[0].passwordHash), /^pbkdf2-sha256\$/)
+      assert.match(await store(data => data.users[0].passwordHash), /^scrypt\$16384\$8\$5\$/)
       cookie = login.cookies[0].split(';')[0]
       assert.equal((await request('/api/auth/login', 'POST', details)).status, 200)
+      const interim = 'pbkdf2-sha256$100000$' + pbkdf2Sync(details.password, salt, 100000, 32, 'sha256').toString('hex')
+      await store(data => { data.users[0].passwordHash = interim }, true)
+      assert.equal((await request('/api/auth/login', 'POST', { ...details, password: 'wrong-password' })).status, 401)
+      assert.equal(await store(data => data.users[0].passwordHash), interim)
+      const migrated = await request('/api/auth/login', 'POST', details)
+      assert.equal(migrated.status, 200)
+      assert.equal(migrated.body.user.id, userId)
+      assert.match(await store(data => data.users[0].passwordHash), /^scrypt\$16384\$8\$5\$/)
     })
     await t.test('session cap and configuration failures remain safe', async () => {
       await store(data => {
