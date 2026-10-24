@@ -33,6 +33,16 @@ const task = ref(props.user.farmType === 'livestock' ? 'animal-health' : props.u
 const image = ref(null)
 const filename = ref('')
 const consent = ref(false)
+const includeFarmContext = ref(false)
+function changeFarmContext(event) {
+  const enabled = event.target.checked
+  clearSession()
+  includeFarmContext.value = enabled
+}
+function safeSources(sources) {
+  if (!Array.isArray(sources)) return []
+  return sources.filter(source => source && typeof source.id === 'string' && source.id.length <= 100 && typeof source.title === 'string' && source.title.length <= 300 && typeof source.url === 'string' && source.url.length <= 1000 && /^https:\/\/(?:www\.fao\.org|agr\.wa\.gov)\//.test(source.url)).slice(0, 5)
+}
 const busy = ref(false)
 const speaking = ref(false)
 const error = ref('')
@@ -185,9 +195,9 @@ async function send() {
   const content = question.value.trim()
   const history = [...messages.value.map(item => ({ role: item.role, content: item.content.slice(0, 4000) })), { role: 'user', content }].slice(-5)
   try {
-    const result = await $fetch('/api/assistant/chat', { method: 'POST', body: { task: task.value, messages: history, ...(image.value ? { image: image.value } : {}) }, signal: controller.signal })
+    const result = await $fetch('/api/assistant/chat', { method: 'POST', body: { task: task.value, messages: history, includeFarmContext: includeFarmContext.value, ...(image.value ? { image: image.value } : {}) }, signal: controller.signal })
     if (disposed || generation !== sessionGeneration) return
-    messages.value = [...messages.value, { role: 'user', content, photo: Boolean(image.value) }, { role: 'assistant', content: result.text, model: result.model }].slice(-16)
+    messages.value = [...messages.value, { role: 'user', content, photo: Boolean(image.value) }, { role: 'assistant', content: result.text, model: result.model, sources: safeSources(result.sources), contextUsed: result.contextUsed === true }].slice(-16)
     question.value = ''
     removeImage()
   } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.data?.statusMessage || (failure?.statusCode === 401 ? 'Please sign in again.' : 'Unable to get an answer. Check your connection or try again later.') }
@@ -206,7 +216,7 @@ async function speak(message) {
   } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.data?.statusMessage || 'Voice is unavailable. The written answer is still available.' }
   finally { if (generation === sessionGeneration) speaking.value = false }
 }
-function clearSession() { sessionGeneration++; releaseDictation(); dictationNotice.value = ''; error.value = ''; controller?.abort(); busy.value = false; speaking.value = false; messages.value = []; question.value = ''; removeImage(); clearAudio() }
+function clearSession() { includeFarmContext.value = false; sessionGeneration++; releaseDictation(); dictationNotice.value = ''; error.value = ''; controller?.abort(); busy.value = false; speaking.value = false; messages.value = []; question.value = ''; removeImage(); clearAudio() }
 watch(() => props.user.id, () => { statusController?.abort(); clearSession(); status.value = null; checkingStatus.value = false; refreshStatus() })
 onMounted(() => {
   dictationSupported.value = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -255,12 +265,15 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
           <p class="message-author">{{ message.role === 'user' ? 'You' : `FarmBuddyAI · ${message.model}` }}</p>
           <p class="message-content">{{ message.content }}</p>
           <p v-if="message.photo" class="message-note">Photo shared with this question.</p>
+          <p v-if="message.role === 'assistant'" class="message-note">{{ message.contextUsed ? 'Used a limited snapshot of your own farm records.' : 'No farm-record snapshot shared for this answer.' }}</p>
+          <details v-if="message.sources?.length" class="knowledge-sources"><summary>Agricultural references supplied to this answer</summary><p>General guidance, not live outbreak reports or confirmation of a diagnosis. Check the references and local advice.</p><ul><li v-for="source in message.sources" :key="source.id"><a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.id }} · {{ source.title }}</a></li></ul></details>
           <button v-if="message.role === 'assistant' && status?.voice" type="button" class="read-aloud" :disabled="speaking || busy || dictationActive" @click="speak(message)"><Volume2 :size="15" />Read aloud with YarnGPT{{ message.content.length > 4000 ? ' (first 4,000 characters)' : '' }}</button>
         </li>
         <li v-if="busy" class="message assistant pending" role="status">Looking into your question…</li>
       </ol>
 
       <div class="composer-area">
+        <div class="farm-context-control"><label><input :checked="includeFarmContext" type="checkbox" :disabled="busy || speaking" @change="changeFarmContext"> Use my farm records for this conversation</label><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to OpenRouter and its routed provider when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></div>
         <form class="composer" @submit.prevent="send">
           <div class="composer-heading"><label for="assistant-task">Help with</label><select id="assistant-task" v-model="task" :disabled="busy"><option value="chat">General farming</option><option value="plant-health">Plant health</option><option value="animal-health">Animal health</option><option value="identify-crop">Identify a crop</option></select><span>{{ question.length.toLocaleString() }} / 4,000</span></div>
           <label for="assistant-question" class="sr-only">Your question</label>
@@ -288,13 +301,14 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
         <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
-        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
+        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
+.farm-context-control{max-width:760px;margin:0 auto 12px;padding:12px 16px;border:1px solid #d8e1cd;border-radius:14px;background:#ffffffa8;font-size:12px;line-height:1.7}.farm-context-control label{display:flex;gap:10px;align-items:center;font-weight:700;color:#164e32}.farm-context-control p{margin-top:6px;color:#63765d}.farm-context-control input{accent-color:#066136}.knowledge-sources{font-size:12px;line-height:1.7;margin-top:10px;overflow-wrap:anywhere}.knowledge-sources summary{cursor:pointer;font-weight:700}.knowledge-sources a{color:#066136;text-decoration:underline}.knowledge-sources ul{padding-left:18px;list-style:disc}
 .workspace-switch{display:flex;flex-wrap:wrap;gap:8px;padding:12px 26px;border-bottom:1px solid #375c3510}.workspace-switch button{display:flex;align-items:center;gap:7px;padding:10px 14px;border:1px solid #d8e1cd;border-radius:10px;font-size:12px;background:#ffffff80}.workspace-switch button[aria-pressed=true]{background:#066136;color:#fff;border-color:#066136}.voice-workspace{padding:clamp(12px,3vw,28px);min-width:0}.voice-intro{max-width:800px;font-size:13px;line-height:1.8;margin-bottom:16px}.voice-workspace :deep(.farm-notes){max-width:none}
 .farm-companion {
   position: relative;
