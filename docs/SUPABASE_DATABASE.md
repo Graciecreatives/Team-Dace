@@ -1,6 +1,6 @@
 # Supabase PostgreSQL persistence
 
-FarmBuddy retains its existing `store(callback, mutate)` API and server-side session/password authentication. It does **not** switch to Supabase Auth or expose user/session data to the browser. PostgreSQL holds one versioned JSONB application snapshot in `farmbuddy_private.app_state`, not a normalized rewrite of every feature.
+FarmBuddy retains its existing `store(callback, mutate)` API. Authentication is selected separately: `FARMBUDDY_AUTH=supabase` uses Supabase email/password Auth, while `local` preserves legacy development accounts. See `docs/SUPABASE_AUTH.md` before switching existing users. PostgreSQL holds one versioned JSONB application snapshot in `farmbuddy_private.app_state`, not a normalized rewrite of every feature.
 
 ## Choose a backend
 

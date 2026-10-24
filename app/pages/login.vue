@@ -9,6 +9,16 @@ const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
 const errorBox = ref(null)
+const confirmationNotice = ref('')
+onMounted(() => {
+  // Default Supabase confirmation links may carry tokens in the URL fragment.
+  // This app signs in with a password, never trusts or stores fragment tokens.
+  if (/^#(?:access_token=|error=)/.test(window.location.hash)) {
+    const failed = window.location.hash.startsWith('#error=')
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search)
+    confirmationNotice.value = failed ? 'This email link could not be completed. Try the latest confirmation email, then sign in.' : 'Email confirmation returned. Sign in below to continue. An expired or unconfirmed email will be reported when you sign in.'
+  }
+})
 const requestFetch = useRequestFetch()
 let currentUser = null
 try {
@@ -32,6 +42,8 @@ async function submit() {
       method: 'POST',
       body: { email: email.value.trim(), password: password.value },
     })
+    if (!response.user) throw new Error('No authenticated user returned')
+    password.value = ''
     await navigateTo(destination(response.user))
   } catch (cause) {
     error.value = cause?.data?.message || cause?.data?.statusMessage || 'Unable to sign in. Please check your details and try again.'
@@ -47,6 +59,7 @@ async function submit() {
   <AuthShell>
     <h1 class="auth-title">Good to see you again.</h1>
     <p class="auth-description">Sign in to FarmBuddy. Let's pick up where your farm left off.</p>
+    <p v-if="confirmationNotice" role="status" class="rounded-xl border border-[#D6E1CB] bg-[#F1F5E9] p-4 text-sm leading-6 text-[#193D2B]">{{ confirmationNotice }}</p>
     <form class="auth-form" :aria-busy="loading" @submit.prevent="submit">
       <div v-if="error" ref="errorBox" class="error-message" role="alert" tabindex="-1">{{ error }}</div>
       <div class="field">

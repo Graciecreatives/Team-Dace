@@ -1,6 +1,6 @@
 # FarmBuddy backend
 
-**Storage selection:** the local-file details below apply only to `FARMBUDDY_DATABASE=local`. Supabase PostgreSQL is supported through a private transactional snapshot adapter. For production explicitly select `FARMBUDDY_DATABASE=supabase`, provision and safely import using `docs/SUPABASE_DATABASE.md`. Product phone-photo storage and cloud cutover are covered in `docs/PRODUCT_PHOTOS.md`. Authentication remains server-managed, not Supabase Auth.
+**Storage selection:** the local-file details below apply only to `FARMBUDDY_DATABASE=local`. Supabase PostgreSQL is supported through a private transactional snapshot adapter. For production explicitly select `FARMBUDDY_DATABASE=supabase`, provision and safely import using `docs/SUPABASE_DATABASE.md`. Product phone-photo storage and cloud cutover are covered in `docs/PRODUCT_PHOTOS.md`. Authentication can separately use Supabase Auth with `FARMBUDDY_AUTH=supabase`, see `docs/SUPABASE_AUTH.md` for configuration and non-automatic existing-account migration.
 
 Run with `npm run dev` or `npm run host` for LAN previews, or `npm run build` followed by `node .output/server/index.mjs`. Local core features need no external services. Supabase, OpenRouter and YarnGPT features need private server configuration. The API creates no demo data.
 

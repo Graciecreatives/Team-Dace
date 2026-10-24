@@ -12,6 +12,8 @@ const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
 const errorBox = ref(null)
+const confirmation = ref('')
+const confirmationBox = ref(null)
 const requestFetch = useRequestFetch()
 let currentUser = null
 try {
@@ -29,12 +31,21 @@ if (currentUser) await navigateTo(destination(currentUser), { replace: true })
 async function submit() {
   if (loading.value) return
   error.value = ''
+  confirmation.value = ''
   loading.value = true
   try {
     const response = await $fetch('/api/auth/register', {
       method: 'POST',
       body: { name: name.value.trim(), email: email.value.trim(), password: password.value, farmName: farmName.value.trim(), farmType: farmType.value },
     })
+    password.value = ''
+    if (response.requiresEmailConfirmation) {
+      confirmation.value = 'Check your email for a confirmation link. If this address is eligible, confirm it, then return here to sign in. No dashboard session has been created yet.'
+      await nextTick()
+      confirmationBox.value?.focus()
+      return
+    }
+    if (!response.user) throw new Error('No authenticated user returned')
     await navigateTo(destination(response.user))
   } catch (cause) {
     error.value = cause?.data?.message || cause?.data?.statusMessage || 'Unable to create your account. Please try again.'
@@ -50,7 +61,8 @@ async function submit() {
   <AuthShell mode="register">
     <h1 class="auth-title">Good things start here.</h1>
     <p class="auth-description">Create your account and make a little more room for growth.</p>
-    <form class="auth-form" :aria-busy="loading" @submit.prevent="submit">
+    <div v-if="confirmation" ref="confirmationBox" role="status" tabindex="-1" class="confirmation-message"><strong>One more step: confirm your email.</strong><p>{{ confirmation }}</p><NuxtLink to="/login">Go to sign in <ArrowRight :size="16" aria-hidden="true" /></NuxtLink></div>
+    <form v-if="!confirmation" class="auth-form" :aria-busy="loading" @submit.prevent="submit">
       <div v-if="error" ref="errorBox" class="error-message" role="alert" tabindex="-1">{{ error }}</div>
       <div class="field">
         <label for="register-name">Your name</label>
@@ -83,3 +95,7 @@ async function submit() {
     <p class="switch-link">Already growing with us? <NuxtLink to="/login">Sign in</NuxtLink></p>
   </AuthShell>
 </template>
+
+<style scoped>
+.confirmation-message{margin:20px 0;padding:20px;border:1px solid #c6dcb8;border-radius:16px;background:#f0f7e9;color:#193d2b;font-size:14px;line-height:1.7}.confirmation-message p{margin:8px 0 14px}.confirmation-message a{display:inline-flex;align-items:center;gap:8px;font-weight:700;color:#066136}.confirmation-message:focus-visible{outline:3px solid #f9c23c;outline-offset:3px}
+</style>
