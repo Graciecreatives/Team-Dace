@@ -27,3 +27,12 @@ The PDF is a static shareable presentation. The HTML is the editable and keyboar
 - Removed jargon such as taxonomy, replay explicitly and connected base from the presentation copy.
 - Root visually reviewed the revised cover, crop-check slide and all twelve regenerated PDF pages. Browser geometry checks found no text, image or feature labels crossing the slide footer.
 - Final export passed the twelve-page check. Validation now guards explicit AI cover, disease-check and AI helper messaging.
+
+## Screenshot-led landing-page revision
+
+- Cover uses “Smart AI Farming Management System”, includes “Farm shop & e-commerce”, and the brand line reads “Your AI Farm Buddy”. The shop remains buyer enquiries, not online checkout.
+- Five real 1600 × 1000 application screenshots were captured from an isolated local demo workspace: overview, production, populated task board, plant scan and assistant. No production records changed. The development toolbar was hidden. See assets/SCREENSHOTS.md.
+- Screenshot slides use rounded, softly tinted feature showcases based on the landing page's AppPreviews and FarmToolkit components. Images retain their 8:5 ratio with contain, not distortion.
+- Root reviewed the worker diff, checked all twelve slides in Chromium for footer/canvas overlap and broken images, and verified a 390 px viewport has a 390 px document width.
+- Root visually reviewed cover, production and plant-check slides, then regenerated and rendered the actual twelve-page PDF and contact sheet.
+- Static validation guards the commerce cover entry, Buddy wording and all five screenshot references. No invented AI answer or diagnosis was inserted into a screenshot.

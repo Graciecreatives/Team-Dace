@@ -21,6 +21,12 @@ export async function validate() {
   if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(1))) fail('The cover must clearly introduce AI farming.');
   if (contents.has('index.html') && !/disease/i.test(slideCopy(9))) fail('The crop-check slide must explicitly mention disease checks.');
   if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(10))) fail('The assistant slide must clearly identify the AI helper.');
+  if (!/Farm shop[^<]*e-commerce/i.test(slideCopy(1))) fail('Cover must include the farm shop/e-commerce feature.');
+  if (!/YOUR AI FARM BUDDY/i.test(html) || /your ai farm helper/i.test(html)) fail('Use Your AI Farm Buddy branding, not helper.');
+  for (const number of [2, 4, 5, 9, 10]) {
+    const slide = (html.split(`id="slide-${number}"`)[1] || '').split('</section>')[0];
+    if (!/src="assets\/app-[a-z]+\.png"/.test(slide)) fail(`Slide ${number} must show a real application screenshot.`);
+  }
   const css = contents.get('deck.css') || '';
   if (contents.has('deck.css') && (!/@media\s+print\b/i.test(css) || !/@page\b/i.test(css))) fail('deck.css must define @media print and @page for PDF export.');
   if (contents.has('deck.css') && !/size\s*:\s*1600px\s+900px/i.test(css)) fail('Print @page size must be 1600px 900px.');
