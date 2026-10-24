@@ -17,18 +17,21 @@ import {
     Users,
 } from "lucide-vue-next";
 
-useHead({ title: "FarmBuddy" });
+useHead({
+    title: "FarmBuddy | Smart Farming Management System",
+    meta: [{ name: "description", content: "Manage crops, livestock, farm records, bookkeeping, inventory, and your team with FarmBuddy, a smart farming management system with marketplace connections and AI support." }],
+});
 
 const features = [
     {
         icon: Camera,
         title: "Photo Diagnosis",
-        desc: "Snap a photo of a sick plant or animal and get likely causes with a confidence level.",
+        desc: "Snap a photo of a crop or animal for AI-assisted guidance on possible issues, not a confirmed diagnosis.",
     },
     {
         icon: Mic,
         title: "Voice Notes",
-        desc: "Speak in your own language and get answers back, with no typing.",
+        desc: "Capture farm observations with voice notes to support your daily records and questions.",
     },
     {
         icon: CircleHelp,
@@ -38,42 +41,42 @@ const features = [
     {
         icon: ClipboardList,
         title: "Farm Records",
-        desc: "Say what happened on the farm today and it is saved, with weekly profit and loss summaries.",
+        desc: "Track crop and livestock activities alongside bookkeeping, income, expenses, and inventory.",
     },
     {
         icon: Bell,
         title: "Reminders",
-        desc: "Never miss a vaccine, spraying, feeding, deworming, or harvest date.",
+        desc: "Plan vaccines, spraying, feeding, deworming, and harvest tasks with reminders.",
     },
     {
         icon: Users,
         title: "Farmer Network",
-        desc: "Connect with nearby farmers, dealers, and buyers.",
+        desc: "Connect with farmers and explore marketplace listings from dealers and buyers.",
     },
     {
         icon: TriangleAlert,
         title: "Outbreak Alerts",
-        desc: "Get warned when a crop or animal disease is spreading near you.",
+        desc: "Follow reported crop and animal health alerts in your area to inform your next steps.",
     },
     {
         icon: BadgeCheck,
         title: "Farm Passport",
-        desc: "A verified farm record you can show banks, cooperatives, and buyers.",
+        desc: "Coming soon: a farm passport to bring your farm profile and activity history together.",
     },
 ];
 
 const heroHeadings = [
-    "Farm Buddy for every crop and Farm Animals",
-    "Farming help that speaks your language",
-    "Smart AI Farm Assistance",
+    "Smart Farming Management System",
+    "Manage crops, livestock, and farm records",
+    "Your farm operations, supported by AI",
 ];
 
 const marqueeItems = [
-    "🌱 Snap a photo, get a diagnosis in minutes",
-    "🐔 Crop and Farm Animal help in one app",
+    "🌱 Crop and livestock management in one place",
+    "🐔 Records, bookkeeping, and inventory",
     "🎙️ Speak your farm records, no typing",
-    "🩺 Real vet or agronomist backup when the AI is unsure",
-    "⭐ Free to start",
+    "🧑‍🌾 Coordinate your team and daily tasks",
+    "🛒 Marketplace connections with AI support",
 ];
 
 // SSR renders the first heading fully; the client animates from there.
@@ -181,7 +184,7 @@ onUnmounted(() => {
                     <p
                         class="mb-4 inline-flex max-w-full items-center gap-2 rounded-full border border-slate-900/10 bg-white/60 px-3 py-1.5 text-[11px] font-medium text-slate-700 sm:mb-6 sm:px-4 sm:text-sm"
                     >
-                        🌱 Farm care, records, and community in one app
+                        🌱 Smart farming management for crops and livestock
                     </p>
                     <h1
                         class="flex min-h-[108px] flex-col justify-center text-3xl font-bold tracking-tight text-[#066136] sm:min-h-[144px] sm:text-5xl lg:min-h-[120px] lg:text-6xl"
@@ -197,10 +200,10 @@ onUnmounted(() => {
                     <p
                         class="mt-5 text-base leading-relaxed text-slate-600 sm:mt-6 sm:text-lg"
                     >
-                        FarmBuddy is the AI farm doctor, record keeper, and
-                        farming community for every crop and every farm animals.
-                        Snap a photo or send a voice note, and get clear advice,
-                        simple records, and real expert help from FarmBuddy AI
+                        FarmBuddy is your smart farming management system for
+                        crops and livestock. Bring farm records, bookkeeping,
+                        inventory, team coordination, and marketplace connections
+                        together, with AI support for everyday farming questions.
                     </p>
                     <div
                         class="mt-10 grid w-full grid-cols-1 gap-4 sm:flex sm:justify-center sm:gap-4"
@@ -209,7 +212,7 @@ onUnmounted(() => {
                             href="/register"
                             class="flex justify-center rounded-full bg-[#066136] px-9 py-4 text-base font-semibold text-white transition hover:opacity-90"
                         >
-                            Start Free
+                            Get Started
                         </a>
                         <a
                             href="#about"
@@ -228,13 +231,14 @@ onUnmounted(() => {
                 <h2
                     class="text-2xl font-bold tracking-tight text-[#066136] sm:text-3xl lg:text-4xl"
                 >
-                    Everything your farm needs, in one app
+                    Manage the whole farm, in one place
                 </h2>
                 <p
                     class="mt-4 text-base leading-relaxed text-slate-600 sm:mt-5 sm:text-lg"
                 >
-                    Everything you need to keep your crops and animals healthy
-                    and your farm running well, in one simple app.
+                    From crop planning and livestock care to bookkeeping,
+                    inventory, and team tasks, keep your farm operations connected.
+                    Explore the marketplace and community, with AI guidance when you need support.
                 </p>
             </div>
 

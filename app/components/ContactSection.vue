@@ -34,7 +34,7 @@ async function copyMessage() {
         <p class="mt-5 max-w-md text-base leading-7 text-slate-600">Have a question, an idea, or a way we can grow together? There’s a place for your voice at FarmBuddy.</p>
         <div class="mt-9 space-y-6">
           <div v-for="item in [
-            { icon: LifeBuoy, title: 'Questions about FarmBuddy', text: 'Learn more about farm guidance, records, and reminders.' },
+            { icon: LifeBuoy, title: 'Questions about FarmBuddy', text: 'Learn more about crop and livestock management, bookkeeping, inventory, team tools, marketplace connections, and AI support.' },
             { icon: Users, title: 'Partnerships & community', text: 'For cooperatives, agricultural experts, and people building a better farming future.' },
             { icon: MessageCircle, title: 'Ideas & feedback', text: 'Tell us what would make FarmBuddy more useful on your farm.' },
           ]" :key="item.title" class="flex items-start gap-4">

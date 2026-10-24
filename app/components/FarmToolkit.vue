@@ -9,9 +9,9 @@ const accents = ['green', 'amber', 'violet', 'blue', 'amber', 'green', 'coral', 
     <div class="tools-heading">
       <div>
         <p class="tools-eyebrow"><span /> YOUR EVERYDAY FARM TOOLKIT</p>
-        <h2 id="tools-title">Big support.<br><span>For every little farm task.</span></h2>
+        <h2 id="tools-title">Whole-farm support.<br><span>For everyday management.</span></h2>
       </div>
-      <p class="tools-intro">From the first sign of trouble to your next harvest, keep the help you need close at hand.</p>
+      <p class="tools-intro">Manage crop and livestock activities, records, bookkeeping, inventory, and team tasks, with AI support close at hand.</p>
     </div>
     <div class="tools-grid">
       <article v-for="(feature, index) in features" :key="feature.title" class="tool-card" :class="[index === 0 ? 'tool-spotlight' : '', `accent-${accents[index]}`]">
@@ -29,7 +29,7 @@ const accents = ['green', 'amber', 'violet', 'blue', 'amber', 'green', 'coral', 
         </div>
       </article>
     </div>
-    <p class="tools-footnote"><Sprout :size="16" aria-hidden="true" />One companion for your crops, animals, records, and community.</p>
+    <p class="tools-footnote"><Sprout :size="16" aria-hidden="true" />One system for your crops, livestock, operations, and community.</p>
   </section>
 </template>
 

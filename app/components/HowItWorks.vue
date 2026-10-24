@@ -4,8 +4,8 @@ const activeStep = ref(0)
 const steps = [
   { title: 'Tell us about your farm', description: 'Start with your crops and animals. A little context helps FarmBuddy understand your farm and give you more relevant support.', icon: UserRound, label: 'Your farm comes first', detail: 'One place for your crops, animals, and daily activities.', items: ['Your crops', 'Your animals', 'Your farm profile'] },
   { title: 'Show it. Say it. Ask it.', description: 'Snap a photo of a crop or animal, send a voice note, or ask a question. Share what’s happening in the way that feels easiest to you.', icon: Camera, label: 'Farm help, your way', detail: 'A photo, a voice note, or a simple question is all it takes.', items: ['Photo diagnosis', 'Voice notes', 'Simple questions'] },
-  { title: 'Get guidance that fits', description: 'Answer a few quick follow-up questions and get clear next steps. When the AI is unsure, real vet or agronomist backup helps you move forward.', icon: MessagesSquare, label: 'Clarity for your next step', detail: 'More context. Clearer guidance. Expert backup when needed.', items: ['Smart follow-up questions', 'Tailored guidance', 'Expert backup'] },
-  { title: 'Keep your farm moving', description: 'Save what happened, set reminders, and follow your farm’s progress. Build useful records and stay connected with your farming community.', icon: ClipboardCheck, label: 'Good habits. Stronger farms.', detail: 'Turn everyday farm activities into a record you can build on.', items: ['Farm records', 'Timely reminders', 'Farmer community'] },
+  { title: 'Get guidance that fits', description: 'Answer follow-up questions to give the AI more context for suggested next steps. AI guidance is not a confirmed diagnosis or a substitute for a qualified professional.', icon: MessagesSquare, label: 'Clarity for your next step', detail: 'More farm context. AI-assisted guidance. Your decisions.', items: ['Smart follow-up questions', 'Tailored guidance', 'AI support'] },
+  { title: 'Keep your farm moving', description: 'Keep crop and livestock records, track bookkeeping and inventory, and coordinate your team. Set reminders and explore your farming community and marketplace.', icon: ClipboardCheck, label: 'Good habits. Stronger farms.', detail: 'Turn everyday farm activities into a record you can build on.', items: ['Farm records', 'Timely reminders', 'Farmer community'] },
 ]
 const current = computed(() => steps[activeStep.value])
 </script>
@@ -15,7 +15,7 @@ const current = computed(() => steps[activeStep.value])
     <div class="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(rgba(51,47,43,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(51,47,43,0.08)_1px,transparent_1px)] [background-size:48px_48px]" aria-hidden="true" />
     <div class="mx-auto max-w-6xl">
       <div class="mx-auto mb-10 max-w-2xl text-center sm:mb-14">
-        <p class="text-xs font-bold uppercase tracking-[0.18em] text-[#066136]">From a question to a clearer next step</p>
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-[#066136]">From daily activities to connected farm management</p>
         <h2 id="how-heading" class="mt-4 text-3xl font-bold tracking-tight text-[#193D2B] sm:text-4xl lg:text-5xl">How <span class="text-[#066136]">FarmBuddy</span> works</h2>
         <p class="mt-5 leading-relaxed text-slate-600">Real farm life isn’t complicated to explain. Getting support shouldn’t be either. Start with these four simple steps.</p>
       </div>

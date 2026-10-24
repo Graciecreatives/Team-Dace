@@ -9,13 +9,13 @@ import { ArrowUpRight, Sprout, Users, Stethoscope, Mic, Camera, Leaf, Check, Tre
       <div class="mb-10 max-w-2xl">
         <p class="text-xs font-bold uppercase tracking-[0.2em] text-[#066136]">Better farming, together</p>
         <h2 id="grow-heading" class="mt-3 text-3xl font-bold tracking-tight text-[#066136] sm:text-4xl">Your next chapter starts here.</h2>
-        <p class="mt-4 leading-relaxed text-slate-600">A healthier farm. A stronger community. Find your place with FarmBuddy.</p>
+        <p class="mt-4 leading-relaxed text-slate-600">Connected operations. A stronger community. Manage your farm and grow together with FarmBuddy.</p>
       </div>
       <div class="grid gap-5 lg:grid-cols-3">
         <article class="relative flex flex-col overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#045B34] to-[#20864E] p-7 text-white shadow-xl shadow-[#066136]/10 sm:p-8 lg:row-span-2">
           <span class="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/10"><Sprout :size="23" aria-hidden="true" /></span>
           <h3 class="mt-5 text-3xl font-bold tracking-tight">Grow with confidence</h3>
-          <p class="mt-3 max-w-xs text-sm leading-7 text-white/85">From your first seed to your next harvest. Get clear farm guidance, simple records, and timely reminders, all in one place.</p>
+          <p class="mt-3 max-w-xs text-sm leading-7 text-white/85">From crop planning to livestock care, keep records, bookkeeping, inventory, and team tasks together with timely reminders.</p>
           <div class="relative mx-auto my-7 flex h-48 w-full max-w-[240px] items-center justify-center" aria-hidden="true">
             <span class="absolute h-44 w-44 rounded-full bg-[#F9C23C]/10" />
             <Leaf class="absolute left-1 top-9 -rotate-45 text-[#A9D66F]" :size="48" />
@@ -36,7 +36,7 @@ import { ArrowUpRight, Sprout, Users, Stethoscope, Mic, Camera, Leaf, Check, Tre
           <div class="max-w-sm">
             <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F9C23C]/25 text-[#916200]"><Users :size="21" aria-hidden="true" /></span>
             <h3 class="mt-4 text-2xl font-bold tracking-tight text-[#302C24]">Stronger together</h3>
-            <p class="mt-3 text-sm leading-6 text-[#655C4C]">Connect with nearby farmers, share what works, and find your farming community. You don’t have to grow alone.</p>
+            <p class="mt-3 text-sm leading-6 text-[#655C4C]">Connect with farmers, share what works, and explore the marketplace for farm supplies and produce. You don’t have to grow alone.</p>
             <NuxtLink to="/register" class="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[#066136] hover:underline">Join the community <ArrowUpRight :size="16" aria-hidden="true" /></NuxtLink>
           </div>
           <div class="flex h-36 w-full shrink-0 items-center justify-center rounded-3xl bg-[#F9C23C]/15 sm:w-36" aria-hidden="true">
@@ -51,7 +51,7 @@ import { ArrowUpRight, Sprout, Users, Stethoscope, Mic, Camera, Leaf, Check, Tre
           <div class="max-w-sm">
             <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10"><Stethoscope :size="21" aria-hidden="true" /></span>
             <h3 class="mt-4 text-2xl font-bold tracking-tight">Care for every crop & animal</h3>
-            <p class="mt-3 text-sm leading-6 text-white/65">Snap a photo or send a voice note. Get tailored guidance, with real expert backup when the AI is unsure.</p>
+            <p class="mt-3 text-sm leading-6 text-white/65">Snap a photo or send a voice note for AI-assisted guidance. For health concerns, consult a qualified vet or agronomist.</p>
             <a href="#about" class="mt-5 inline-flex items-center gap-2 text-sm font-bold text-white hover:text-[#F9C23C]">Explore FarmBuddy <ArrowUpRight :size="16" aria-hidden="true" /></a>
           </div>
           <div class="relative flex h-36 w-full shrink-0 items-center justify-center sm:w-36" aria-hidden="true">

@@ -19,7 +19,7 @@ const navigation = [
       <div class="grid gap-10 py-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1.2fr] lg:gap-16">
         <div>
           <a href="/#home" aria-label="FarmBuddy home" class="inline-flex items-center gap-2.5 text-2xl font-extrabold tracking-tight"><span class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-[#F9C23C]"><Sprout :size="25" aria-hidden="true" /></span>FarmBuddy<span class="-ml-2 text-[#F9C23C]">.</span></a>
-          <p class="mt-5 max-w-sm text-sm leading-7 text-[#BBD1C4]">Your everyday farming companion. Clear guidance, simple records, and a community that grows with you.</p>
+          <p class="mt-5 max-w-sm text-sm leading-7 text-[#BBD1C4]">Your smart farming management system. Crops, livestock, records, bookkeeping, inventory, team coordination, and marketplace connections, with AI support.</p>
           <p class="mt-4 flex items-center gap-2 text-xs font-medium text-[#F1D991]"><Sprout :size="15" aria-hidden="true" />For every crop. For every animal.</p>
         </div>
         <nav aria-label="Footer navigation"><h3 class="text-xs font-bold uppercase tracking-[0.16em] text-white/60">Discover</h3><ul class="mt-5 space-y-3"><li v-for="link in navigation" :key="link.href"><a :href="link.href" class="text-sm text-[#D3E2D9] transition hover:text-[#F9C23C]">{{ link.label }}</a></li></ul></nav>

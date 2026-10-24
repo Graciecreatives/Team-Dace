@@ -7,7 +7,7 @@ const screens = [
   { title: 'Every little detail, remembered.', name: 'Farm records', icon: ClipboardList, theme: 'pink', type: 'records' },
   { title: 'Right task. Right time.', name: 'Smart reminders', icon: Bell, theme: 'lilac', type: 'reminders' },
   { title: 'Good things grow together.', name: 'Farmer community', icon: Users, theme: 'sand', type: 'community' },
-  { title: 'Your hard work has a story.', name: 'Farm passport', icon: BadgeCheck, theme: 'mint', type: 'passport' },
+  { title: 'Your hard work has a story.', name: 'Farm passport · Coming soon', icon: BadgeCheck, theme: 'mint', type: 'passport' },
 ]
 </script>
 
@@ -58,9 +58,9 @@ const screens = [
                   <div class="mt-3 rounded-lg bg-[#F9C23C] py-2 text-center text-[9px] font-bold">Share your farm story</div>
                 </template>
                 <template v-else>
-                  <div class="mt-3 rounded-xl border border-[#066136]/15 bg-[#F0F5E8] p-4 text-center"><BadgeCheck class="mx-auto text-[#066136]" :size="38" /><p class="mt-2 text-sm font-bold text-[#066136]">My Farm Passport</p><p class="mt-1 text-[8px]">A growing record of your hard work</p></div>
+                  <div class="mt-3 rounded-xl border border-[#066136]/15 bg-[#F0F5E8] p-4 text-center"><BadgeCheck class="mx-auto text-[#066136]" :size="38" /><p class="mt-2 text-sm font-bold text-[#066136]">My Farm Passport</p><p class="mt-1 text-[8px]">Coming soon: your farm story in one place</p></div>
                   <div v-for="item in ['Farm profile', 'Crop & animal records', 'Activity history']" :key="item" class="mt-3 flex items-center justify-between border-b border-slate-100 pb-3 text-[9px]"><span>{{ item }}</span><Check :size="13" class="text-[#066136]" /></div>
-                  <div class="mt-4 rounded-lg bg-[#066136] py-2 text-center text-[9px] font-bold text-white">View farm record</div>
+                  <div class="mt-4 rounded-lg bg-[#066136] py-2 text-center text-[9px] font-bold text-white">Coming soon</div>
                 </template>
               </div>
               <div class="absolute inset-x-0 bottom-0 flex justify-around border-t border-slate-100 bg-white px-4 py-3 text-[#066136]"><Home :size="15" /><Camera :size="15" /><Plus :size="15" /><ClipboardList :size="15" /><Users :size="15" /></div>
