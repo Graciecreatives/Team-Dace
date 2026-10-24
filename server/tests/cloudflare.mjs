@@ -33,6 +33,26 @@ if (url.protocol === 'https:') assert.match(registered.response.headers.get('set
 const ownerId = registered.value.user.id
 await writeFile('.data/cloudflare-smoke-account.json', JSON.stringify({ ownerId, email, imageId: null }), { mode: 0o600, flag: 'wx' })
 await call('/api/farm/profile', 'PATCH', { farmName: 'Cloudflare validation', farmType: 'mixed', onboardingCompleted: true })
+const serviceStatus = await call('/api/services/status')
+assert.equal(serviceStatus.response.headers.get('cache-control'), 'no-store')
+assert.equal(serviceStatus.value.configurationOnly, true)
+for (const value of Object.values(serviceStatus.value.services)) assert.equal(typeof value, 'boolean')
+assert.equal((await fetch(base + '/api/services/status')).status, 401)
+const manual = (await call('/api/farm/records', 'POST', { title: 'Validation seed', category: 'expense', amount: 12.5, note: 'Disposable smoke entry' })).value.record
+assert.equal(manual.updatedAt, manual.createdAt)
+const revised = (await call(`/api/farm/records/${manual.id}`, 'PATCH', { title: 'Validation seed revised', amount: 15, expectedUpdatedAt: manual.updatedAt })).value.record
+assert.equal(revised.amount, 15)
+assert.notEqual(revised.updatedAt, manual.updatedAt)
+const conflict = await fetch(base + `/api/farm/records/${manual.id}`, { method: 'PATCH', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 20, expectedUpdatedAt: manual.updatedAt }) })
+assert.equal(conflict.status, 409)
+let reminder = (await call('/api/farm/reminders', 'POST', { title: 'Validation water', date: '2026-10-25' })).value.reminder
+reminder = (await call(`/api/farm/reminders/${reminder.id}`, 'PATCH', { title: 'Validation water revised', completed: true, expectedUpdatedAt: reminder.updatedAt })).value.reminder
+assert.equal(reminder.completed, true)
+const journal = (await call('/api/farm')).value
+assert.equal(journal.records.find(row => row.id === manual.id).amount, 15)
+assert.equal(journal.reminders.find(row => row.id === reminder.id).title, 'Validation water revised')
+await call(`/api/farm/reminders/${reminder.id}`, 'DELETE')
+await call(`/api/farm/records/${manual.id}`, 'DELETE')
 const inventory = (await call('/api/tools/inventory', 'POST', { name: 'Validation maize', quantity: 0, unit: 'kg', threshold: 1 })).value.inventory
 const command = (action, fields = {}) => call('/api/management', 'POST', { action, farmId: ownerId, commandId: randomUUID(), ...fields })
 const season = await command('season.create', { name: 'Cloudflare season', kind: 'crops', startsOn: '2026-10-01', endsOn: '2027-03-31' })
@@ -87,4 +107,4 @@ assert.equal((await call('/api/management')).value.inventory.find(row => row.id 
 const forbidden = await fetch(base + '/api/farm/records', { method: 'POST', headers: { Cookie: cookie, Origin: 'https://attacker.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Denied', category: 'activity' }) })
 assert.equal(forbidden.status, 403)
 await call('/api/auth/logout', 'POST')
-console.log('PASS Worker auth, D1 connected harvest-stock-sale-bookkeeping and replay, private R2 WASM photo orientation/metadata/publication and customizable hero privacy, login persistence and CSRF. Disposable account manifest saved privately for operator cleanup.')
+console.log('PASS Worker auth, versioned journal/reminder CRUD, private service status, D1 connected harvest-stock-sale-bookkeeping and replay, private R2 WASM photo orientation/metadata/publication and customizable hero privacy, login persistence and CSRF. Disposable account manifest saved privately for operator cleanup.')

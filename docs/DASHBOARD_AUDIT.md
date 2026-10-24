@@ -10,9 +10,9 @@ Reviewed October 24, 2026. This distinguishes implemented workflows from feature
 | Production planning | Plots, optional field boundary map, seasons, schedules and crop/animal histories | Persistent and permission checked. Map needs explicit external tile consent. Boundaries are entered, not surveyed or automatically measured. |
 | Daily operations | Assign tasks to actual members, complete/reopen tasks and record stock consumption | Real Open/Completed board plus list view, assignee/season/search filters. No fake In Progress state or decorative drag-and-drop. Stock use is validated server-side. |
 | Sales & profit | Harvest into stock, draft orders, cash confirmation, invoices, delivery states and seasonal reports | Connected harvest → stock → confirmed sale → stock reduction → bookkeeping. Draft orders reserve no stock. No online payment processing. |
-| Farm records | Save activities, income and expenses | Persistent, account scoped. Financial entries feed bookkeeping. |
-| Bookkeeping | Income, expenses and cash balance | Cash records, not full double-entry accounting, tax filing or bank reconciliation. |
-| Reminders | Dated tasks and completion | In-app only. No background push, SMS or email delivery. |
+| Farm records | Searchable journal with category/date filters and manual record editing | Account-scoped create/edit/delete with version conflicts. Linked workflow entries remain read-only. Financial entries feed bookkeeping. |
+| Bookkeeping | Cash ledger, period summaries, monthly chart/table and filtered CSV | Manual entry editing shares the records API. Currency-safe CSV escaping and explicit download feedback. Cash records, not full double-entry accounting, tax filing or bank reconciliation. |
+| Reminders | Calendar/list views, due-date filters, overdue counts, edit/delete and complete/reopen | Civil-date calendar with keyboard navigation. In-app only. No background push, SMS or email delivery. |
 | Crop & herd register | Crop/livestock enterprise quantities, dates and notes | Saved private register with search and type filters. Detailed history lives in Production planning. |
 | Inventory | Physical supplies/produce, quantities, low-stock thresholds and expiry | Searchable stock workspace. Manual adjustments do not create money entries. Connected harvests, task consumption and confirmed sales update stock. |
 | Marketplace | Product photos, publishing, public farm link and store customization | Real R2 photo uploads and public storefront. Buyers build enquiries and contact farmer. No checkout, payment collection or automatic shipping booking. Storefront quantities are not silently linked to unrelated inventory items. |
@@ -22,7 +22,7 @@ Reviewed October 24, 2026. This distinguishes implemented workflows from feature
 | Farm Watch | Location-based forecast planning and sourced plant/animal health bulletins | Forecast needs OPENWEATHER_API_KEY. Location and external requests require consent. Bulletins are sourced information, not verified nearby disease cases or emergency diagnosis. No background notification delivery. |
 | Nearby farmers | Opt-in approximate location, nearby search, connection requests, contact privacy and map | Real account-backed network, not seeded fake farmers. Map tiles require opt-in. Empty results can mean nobody nearby has opted in. Contact details are not public before permitted connection. |
 | My farm | Current farmer/farm profile | Read-only summary. Edit through Settings. No independently verified bank-ready farm passport. |
-| Settings | Edit account/farm profile and sign out | Persistent profile updates. No managed email verification, password recovery or automatic AI-key setup. |
+| Settings | Farm profile, sign out and connected-service configuration cards | Cards are authenticated, no-store booleans only. Configured does not mean a live provider request succeeded. No managed email verification, password recovery or automatic AI-key setup. |
 
 ## Defects fixed in this change
 
@@ -62,3 +62,15 @@ Focused tests execute actual Vue setup logic for loading, permissions, drafts, a
 - Live browser confirmed the Create task action, full-width operations workspace and inherited Plus Jakarta Sans typography. Existing demo data was not edited.
 - Live HTTPS smoke passed authentication, D1 harvest/stock/sale/bookkeeping replay, session persistence, CSRF and private/public R2 photo/custom-cover boundaries.
 - Exactly the disposable smoke account and its one photo were removed after verification. Other account data was preserved.
+
+### Production, journal and reporting upgrade
+
+- Published October 24, 2026 as Worker version `0c0f7d06-80bb-4b13-95a1-c8e9bf8a9517`.
+- Full isolated suite: **203 tests passed**, plus the separate native Workers crypto test. Node production build, real process restart and Cloudflare build passed.
+- Disposable local browser workflow created a manual expense, edited it from NGN1,250 to NGN1,500 in the journal, then NGN1,750 from bookkeeping. The monthly report showed exactly NGN1,750 expenses and negative NGN1,750 net recorded cash. Filtered CSV download was requested successfully.
+- Browser created and edited a reminder, completed/reopened it, selected its calendar date, used arrow-key date focus and deleted it through the confirmation dialog.
+- Browser created a crop season, scheduled seedling inspection and saved a real observation. Each appeared in the actual persisted production workspace.
+- Calendar, bookkeeping and confirmation dialog fitted a 320px iframe viewport (316px inner width) without document overflow. The deletion dialog stayed within the viewport.
+- Live browser confirmed the full-width journal and reminder calendar. Settings accurately displayed Setup needed for unconfigured services. No live AI/voice/weather success is claimed.
+- Expanded live HTTPS smoke passed versioned record/reminder CRUD, stale-edit conflict, authenticated no-store service status, D1 harvest/sale bookkeeping, R2 photo/cover privacy and login persistence. Exactly its disposable account and one photo were cleaned up, preserving other data.
+- Production records are create-and-review histories in this release. Existing schedules are not a drag-and-drop editable calendar. Reminders have edit/delete, but no background notifications. These limits are intentional and are not presented as working integrations.
