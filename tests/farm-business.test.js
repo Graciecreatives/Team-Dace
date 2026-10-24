@@ -124,7 +124,7 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     .replace(/^import \{([^}]+)\} from 'vue'\n/m, 'const {$1} = Vue\n')
     .replace(/^import .* from .*\n/gm, '')
     .replace('export default', 'return')
-  const component = new Function('Vue', 'FbTabs', 'FbButton', 'FbPageHeader', 'FbPanel', compiled)(Vue, {}, {}, {}, {})
+  const component = new Function('Vue', 'FbTabs', 'FbButton', 'FbPageHeader', 'FbDialog', 'Sprout', 'Package', 'Receipt', 'Banknote', 'Plus', 'Truck', 'Printer', compiled)(Vue, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
   // Mount with Vue's real renderer so watcher scheduling and unmount disposal
   // are exercised, rather than invoking watchers outside a component lifecycle.
   const renderer = Vue.createRenderer({
@@ -141,6 +141,20 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
   } })
   app.mount({})
   try {
+    assert.equal(drafts.editorOpen.value, false, 'forms start closed')
+    drafts.openEditor('sale')
+    assert.equal(drafts.activeTab.value, 'sale')
+    assert.equal(drafts.editorOpen.value, true)
+    drafts.sale.customer = 'Kept after close'
+    drafts.editorOpen.value = false
+    drafts.openEditor('sale')
+    assert.equal(drafts.sale.customer, 'Kept after close')
+    props.busy = true
+    await Vue.nextTick()
+    drafts.openEditor('expense')
+    assert.equal(drafts.activeTab.value, 'sale', 'busy work cannot switch editor')
+    props.busy = false
+    await Vue.nextTick()
     Object.assign(drafts.harvest, { seasonId: 'season', inventoryId: 'stock', quantity: '2', note: 'Keep until confirmed' })
     drafts.sale.customer = 'Unsaved customer'
     drafts.expense.title = 'Unsaved expense'
@@ -213,6 +227,8 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     drafts.send('harvest.create', drafts.harvest)
     props.state = { farm: { id: 'new-farm' } }
     await Vue.nextTick()
+    assert.equal(drafts.editorOpen.value, false)
+    assert.equal(drafts.deliveryEditor.value, '')
     assert.equal(drafts.harvest.note, '')
     assert.equal(drafts.sale.customer, '')
     assert.deepEqual(Object.keys(drafts.delivery), [])

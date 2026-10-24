@@ -6,6 +6,7 @@ import FbPageHeader from './ui/FbPageHeader.vue'
 import FbPanel from './ui/FbPanel.vue'
 import FbEmptyState from './ui/FbEmptyState.vue'
 import FbDialog from './ui/FbDialog.vue'
+import { Sprout, Beef, Package, Wheat, Droplets, Shovel, Plus, Pencil } from 'lucide-vue-next'
 import { filterManagementRows, stockStatus, numericInput } from '../utils/management-board.js'
 const props = defineProps({ section: { type: String, default: 'enterprises' }, user: { type: Object, required: true } })
 const rows = ref([])
@@ -24,6 +25,14 @@ const sort = ref('name')
 const visibleRows = computed(() => filterManagementRows(rows.value, { search: search.value, filter: filter.value, sort: sort.value, section: props.section }))
 const lowCount = computed(() => rows.value.filter(row => stockStatus(row).low).length)
 const expiredCount = computed(() => rows.value.filter(row => stockStatus(row).expired).length)
+function itemIcon(item) {
+  if (props.section === 'enterprises') return item.kind === 'livestock' ? Beef : Sprout
+  const name = (item.name || '').toLowerCase()
+  if (/seed|grain|maize|rice|wheat|feed/.test(name)) return Wheat
+  if (/water|oil|liquid|spray/.test(name)) return Droplets
+  if (/tool|shovel|hoe/.test(name)) return Shovel
+  return Package
+}
 function compose(item) {
   if (busy.value || loading.value) return
   reset(item)
@@ -122,9 +131,9 @@ function download(item) {
 </script>
 
 <template>
-  <section v-if="config" class="space-y-6" :aria-label="config.title">
+  <section v-if="config" class="management-space space-y-6" :class="section" :aria-label="config.title">
     <FbPageHeader :title="config.title" :description="config.intro">
-      <template #actions><FbButton :disabled="busy || loading" @click="compose()">Add {{ config.singular }}</FbButton></template>
+      <template #actions><FbButton :disabled="busy || loading" @click="compose()"><Plus :size="18" aria-hidden="true" />Add {{ config.singular }}</FbButton></template>
     </FbPageHeader>
     <details v-if="section === 'inventory'" class="rounded-2xl border border-[#DFE7D8] px-4 py-3 text-sm text-[#62745F]"><summary class="cursor-pointer font-semibold text-[#193D2B]">How stock connects to your farm</summary><p class="mt-3 leading-6">Inventory tracks physical quantities. Bookkeeping tracks money. Manual stock adjustments do not create financial records. Harvests, task input use and confirmed sales update linked stock through their own workflows.</p></details>
     <p v-if="section === 'referrals'" class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">These are saved case summaries, not verified providers or sent requests. Contacts are entered by you. Nothing is sent externally. For urgent animal or crop health concerns, contact a qualified local professional directly.</p>
@@ -161,15 +170,17 @@ function download(item) {
         <FbEmptyState v-else-if="!rows.length" :title="`No ${config.singular} saved yet`" description="Add your first item. It will be saved privately to your account."><FbButton @click="compose()">Add {{ config.singular }}</FbButton></FbEmptyState>
         <FbEmptyState v-else-if="!visibleRows.length" title="No matching items" description="Try another search or filter."><FbButton variant="secondary" @click="search = ''; filter = 'all'">Clear filters</FbButton></FbEmptyState>
         <p v-if="!loading && rows.length" class="text-sm text-slate-500">Showing {{ visibleRows.length }} of {{ rows.length }} saved items</p>
-        <article v-for="item in visibleRows" :key="item.id" class="management-row border-b border-slate-200 py-5">
-          <div class="flex flex-wrap items-start justify-between gap-3"><h4 class="break-words text-lg font-semibold text-slate-900">{{ item.name || item.title }}</h4><FbBadge>{{ item.kind || item.status || 'Supply' }}</FbBadge></div>
-          <template v-if="section === 'inventory'"><div class="mt-3 flex flex-wrap gap-2"><FbBadge v-if="stockStatus(item).low" tone="warning">Low stock</FbBadge><FbBadge v-if="stockStatus(item).expired" tone="danger">Expired</FbBadge></div><p class="mt-3 text-sm text-slate-700">{{ item.quantity }} {{ item.unit }} on hand · Low stock at {{ item.threshold }}</p><p v-if="item.expiresOn" class="mt-1 text-sm text-slate-500">Expires {{ item.expiresOn }}</p></template>
-          <template v-else-if="section === 'enterprises'"><p v-if="item.quantity !== null" class="mt-3 text-sm text-slate-700">{{ item.quantity }} {{ item.unit }}</p><p v-if="item.startedOn" class="mt-1 text-sm text-slate-500">Started {{ item.startedOn }}</p></template>
+        <div class="item-collection" :class="section === 'inventory' ? 'supply-shelf' : 'farm-directory'">
+        <article v-for="item in visibleRows" :key="item.id" class="management-row" :class="{ 'needs-stock': section === 'inventory' && stockStatus(item).low }">
+          <div class="item-heading"><span v-if="section !== 'referrals'" class="item-icon" :class="item.kind"><component :is="itemIcon(item)" :size="32" :stroke-width="1.6" aria-hidden="true" /></span><div><FbBadge>{{ section === 'enterprises' ? (item.kind === 'livestock' ? 'Livestock / poultry' : 'Crops') : item.status || 'Supply' }}</FbBadge><h4>{{ item.name || item.title }}</h4></div></div>
+          <template v-if="section === 'inventory'"><div class="stock-reading"><p><strong>{{ item.quantity }}</strong> <span>{{ item.unit }}</span></p><span>on hand</span></div><div class="stock-rule"><span>Restock at</span><b>{{ item.threshold }} {{ item.unit }}</b></div><div class="stock-flags"><FbBadge v-if="stockStatus(item).low" tone="warning">Restock needed</FbBadge><FbBadge v-if="stockStatus(item).expired" tone="danger">Expired</FbBadge><FbBadge v-if="!stockStatus(item).low && !stockStatus(item).expired" tone="success">Above restock level</FbBadge></div><p v-if="item.expiresOn" class="item-detail">Expires {{ item.expiresOn }}</p></template>
+          <template v-else-if="section === 'enterprises'"><p v-if="item.quantity != null && item.quantity !== ''" class="directory-quantity"><strong>{{ item.quantity }}</strong> {{ item.unit }}</p><p v-else class="item-detail">Quantity not recorded</p><p v-if="item.startedOn" class="item-detail">On the farm since {{ item.startedOn }}</p></template>
           <template v-else><p class="mt-3 text-sm capitalize text-slate-600">For an {{ item.professionalType }}</p><p class="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{{ item.summary }}</p><p v-if="item.contact" class="mt-3 break-words text-sm text-slate-500">Farmer-entered contact: {{ item.contact }}</p><div class="mt-3 flex flex-wrap gap-3"><button type="button" class="text-sm font-medium text-emerald-800 underline" @click="copy(item)">Copy summary</button><button type="button" class="text-sm font-medium text-emerald-800 underline" @click="download(item)">Download summary</button></div></template>
           <p v-if="item.notes" class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600">{{ item.notes }}</p>
           <div v-if="deleting === item.id" class="mt-4 rounded-xl bg-red-50 p-3" role="group" aria-label="Confirm deletion"><p class="text-sm text-red-900">Delete this {{ config.singular }} permanently?</p><div class="mt-3 flex gap-3"><FbButton variant="danger" :busy="busy" :disabled="loading" @click="remove(item)">Yes, delete</FbButton><FbButton variant="secondary" :disabled="busy || loading" @click="deleting = ''">Keep item</FbButton></div></div>
-          <div v-else class="mt-4 flex gap-3"><FbButton variant="ghost" :disabled="busy || loading" @click="compose(item)">Edit</FbButton><FbButton variant="danger" :disabled="busy || loading" @click="deleting = item.id">Delete</FbButton></div>
+          <div v-else class="item-actions"><FbButton variant="secondary" :disabled="busy || loading" @click="compose(item)"><Pencil :size="16" aria-hidden="true" />{{ section === 'inventory' ? 'Restock / edit' : 'Edit details' }}</FbButton><FbButton variant="ghost" :disabled="busy || loading" @click="deleting = item.id">Delete</FbButton></div>
         </article>
+        </div>
       </div>
       </FbPanel>
     </div>
@@ -177,8 +188,5 @@ function download(item) {
 </template>
 
 <style scoped>
-.management-row:last-child { border-bottom: 0; }
-@media (min-width: 1024px) {
-  .management-row { display: grid; grid-template-columns: minmax(180px, 1.3fr) repeat(2, minmax(140px, 1fr)); gap: .5rem 1.5rem; align-items: start; }
-}
+.management-space{font-family:'Plus Jakarta Sans',sans-serif;color:#193d2b;min-width:0}.item-collection{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:24px;padding:8px 0}.management-row{min-width:0;padding:24px;border:1px solid #dce6d5;border-radius:24px;background:#fff;display:flex;flex-direction:column;overflow-wrap:anywhere}.supply-shelf .management-row{border-bottom:8px solid #b5c89a;background:linear-gradient(180deg,#f7faef 0%,#fff 65%)}.supply-shelf .needs-stock{border-bottom-color:#e9c84d}.item-heading{display:flex;gap:16px;align-items:center}.item-heading h4{font-size:1.2rem;font-weight:750;margin-top:8px;line-height:1.4}.item-icon{flex-shrink:0;display:grid;place-items:center;width:64px;height:72px;border-radius:18px;background:#e5edcf;color:#345b30}.item-icon.livestock{background:#fff0b7;color:#685418}.stock-reading{margin:24px 0 16px}.stock-reading p{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.stock-reading strong{font-size:2.6rem;line-height:1.1;letter-spacing:-.05em}.stock-reading>span,.item-detail{font-size:.875rem;color:#52674f}.stock-rule{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #dce6d5;padding-top:16px;font-size:.875rem}.stock-flags{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.directory-quantity{margin:24px 0 8px;font-size:1.1rem}.directory-quantity strong{font-size:2rem}.item-detail{margin-top:8px}.item-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:24px}.farm-directory .management-row{border-left:5px solid #b5c89a}.management-space :deep(button),.management-space summary{min-height:44px}.management-space :deep(button){display:inline-flex;align-items:center;justify-content:center;gap:8px}.management-space :deep(:focus-visible){outline:3px solid #9b7900;outline-offset:3px}.management-space :deep(input),.management-space :deep(select){min-height:44px;min-width:0}.management-space :deep(label){min-width:0}@media(max-width:400px){.management-row{padding:18px}.item-icon{width:52px;height:60px}.item-heading{gap:12px}}@media(prefers-reduced-motion:reduce){.management-space :deep(*){transition:none!important;animation:none!important}}
 </style>
