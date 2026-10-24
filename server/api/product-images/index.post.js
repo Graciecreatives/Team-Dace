@@ -1,6 +1,7 @@
 import { defineEventHandler, getHeader, setHeader } from 'h3'
 import { authenticated, mutationGuard, fail } from '../[...].js'
 import { store } from '../../utils/store.js'
+import { readBoundedBytes } from '../../utils/request-body.js'
 import { MAX_PHOTO_BYTES, encodeProductPhoto, imageRows, imageUrl, newPhoto, writePhoto, removePhoto, photoBackend } from '../../utils/product-images.js'
 
 const buckets = new Map()
@@ -27,14 +28,8 @@ export default defineEventHandler(async event => {
   let asset, written = false
   try {
     await store(data => { if (imageRows(data).filter(image => image.ownerId === user.id).length >= 500) fail(409, 'Photo storage limit reached. Contact the farm administrator to remove unused uploads.') })
-    const chunks = []
-    let size = 0
-    for await (const chunk of event.node.req.iterator({ destroyOnReturn: false })) {
-      size += Buffer.byteLength(chunk)
-      if (size > MAX_PHOTO_BYTES) { event.node.req.resume(); fail(413, 'Choose a photo up to 8 MB') }
-      chunks.push(Buffer.from(chunk))
-    }
-    const photo = await encodeProductPhoto(Buffer.concat(chunks), type)
+    const bytes = await readBoundedBytes(event, MAX_PHOTO_BYTES, 'Choose a photo up to 8 MB')
+    const photo = await encodeProductPhoto(bytes, type)
     asset = newPhoto(user.id, photo)
     await writePhoto(asset, photo.bytes)
     written = true

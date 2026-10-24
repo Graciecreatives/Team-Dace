@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp, createRouter, toNodeListener } from 'h3'
+import { createApp, createRouter, defineEventHandler, toNodeListener } from 'h3'
 import sharp from 'sharp'
 import { registerHooks } from 'node:module'
 import { encodeProductPhoto, writePhoto, readPhoto, removePhoto, photoBackend, photoKey, MAX_PHOTO_BYTES } from '../server/utils/product-images.js'
@@ -110,7 +110,14 @@ test('real upload HTTP workflow enforces ownership, CSRF, image validation and p
   const { default: upload } = await import('../server/api/product-images/index.post.js')
   const { default: image } = await import('../server/api/product-images/[id].get.js')
   const router = createRouter().post('/api/product-images', upload).get('/api/product-images/:id', image).use('/api/marketplace', owner).use('/api/**', auth)
-  const server = createServer(toNodeListener(createApp().use(router)))
+  const app = createApp().use(defineEventHandler(async event => {
+    if (event.node.req.headers['x-test-nitro-body'] !== '1') return
+    const chunks = []
+    for await (const chunk of event.node.req) chunks.push(Buffer.from(chunk))
+    event.node.req.body = new Uint8Array(Buffer.concat(chunks))
+    event.node.req.iterator = undefined
+  })).use(router)
+  const server = createServer(toNodeListener(app))
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}`
   async function json(path, input, cookie, expected = 200) {
@@ -131,6 +138,13 @@ test('real upload HTTP workflow enforces ownership, CSRF, image validation and p
     assert.equal((await photo(Buffer.from('not an image'), a.cookie)).status, 415)
     assert.equal((await photo(png, a.cookie, { 'Content-Type': 'image/jpeg' })).status, 415)
     assert.equal((await photo(Buffer.alloc(MAX_PHOTO_BYTES + 1), a.cookie)).status, 413)
+    const workerUpload = await photo(png, a.cookie, { 'x-test-nitro-body': '1' })
+    assert.equal(workerUpload.status, 200, await workerUpload.clone().text())
+    const workerPhoto = await workerUpload.json()
+    assert.equal(workerPhoto.width, 40)
+    assert.equal(workerPhoto.height, 30)
+    assert.equal((await fetch(base + workerPhoto.imageUrl)).status, 404)
+    assert.equal((await fetch(base + workerPhoto.imageUrl, { headers: { Cookie: a.cookie } })).status, 200)
     const uploaded = await photo(png, a.cookie)
     assert.equal(uploaded.status, 200, await uploaded.clone().text())
     const result = await uploaded.json()
