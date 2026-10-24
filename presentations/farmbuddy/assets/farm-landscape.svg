@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">A thriving farm, thoughtfully connected</title><desc id="desc">Original stylized farm illustration with sweeping crop rows, a barn, trees and a golden sun. Decorative artwork, not a real farm map.</desc>
+<defs><clipPath id="land"><path d="M125 540C259 398 435 473 623 438C825 400 1004 368 1219 445C1367 497 1460 601 1454 728C1452 772 1417 800 1373 800H227C158 800 107 732 114 660Z"/></clipPath></defs>
+<circle cx="1185" cy="240" r="112" fill="#ffcf38"/>
+<path d="M215 296H389M302 252H440M1291 353H1390" stroke="#dce8cf" stroke-width="22" stroke-linecap="round"/>
+<path d="M155 541C341 338 529 481 710 421C935 346 1185 331 1407 550" stroke="#dce8cf" stroke-width="65" stroke-linecap="round"/>
+<g clip-path="url(#land)"><path d="M80 380H1510V820H80Z" fill="#a9c783"/><path d="M65 590C496 397 975 508 1515 835H65Z" fill="#005f36"/><path d="M480 800C714 530 1099 431 1504 505V840H480Z" fill="#f3edce"/>
+<path d="M638 835C785 601 1122 484 1477 549M813 848C929 654 1187 555 1502 587M1018 842C1092 708 1296 625 1502 638M1220 843C1276 768 1374 714 1497 699" stroke="#d6b94a" stroke-width="23"/>
+<path d="M131 632C310 565 473 565 645 606M130 710C296 645 444 646 559 678M164 784C300 733 403 727 477 742" stroke="#318454" stroke-width="23"/>
+</g>
+<path d="M484 468V329L605 248L726 329V468Z" fill="#fff9e8"/><path d="M458 338L605 239L752 338" stroke="#005f36" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M560 468V364H650V468" fill="#005f36"/><path d="M605 368V466M563 369L647 464M647 369L563 464" stroke="#81a66b" stroke-width="7"/>
+<rect x="568" y="293" width="74" height="36" rx="12" fill="#ffcf38"/>
+<path d="M862 473V333M983 448V293M327 492V391" stroke="#005f36" stroke-width="17" stroke-linecap="round"/>
+<path d="M862 384C784 382 792 291 856 271C920 291 939 379 862 384Z" fill="#5b9461"/><path d="M983 354C888 351 908 246 980 215C1058 246 1080 354 983 354Z" fill="#005f36"/><path d="M327 429C266 429 273 358 325 338C381 358 388 429 327 429Z" fill="#7ea966"/>
+<path d="M1113 421C1149 386 1198 389 1221 423" stroke="#fff9e8" stroke-width="13" stroke-linecap="round"/>
+<circle cx="1370" cy="292" r="13" fill="#005f36"/><circle cx="187" cy="415" r="10" fill="#ffcf38"/>
+</svg>

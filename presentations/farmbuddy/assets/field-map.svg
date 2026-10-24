@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">An illustrated view of the fields</title><desc id="desc">A deliberately schematic field map with rounded parcels, crop rows, a river and a location marker. Not satellite imagery, camera imagery, measured boundaries or live field data.</desc>
+<defs><clipPath id="map"><rect x="195" y="145" width="1170" height="610" rx="56"/></clipPath><pattern id="rows" width="44" height="44" patternUnits="userSpaceOnUse" patternTransform="rotate(28)"><path d="M0 0V44" stroke="#005f36" stroke-opacity=".2" stroke-width="13"/></pattern></defs>
+<rect x="175" y="125" width="1210" height="650" rx="72" fill="#fff9e8" stroke="#dce8cf" stroke-width="3"/>
+<g clip-path="url(#map)"><path d="M195 145H1365V755H195Z" fill="#e8efdd"/>
+<path d="M1090 119C994 263 1164 332 1125 456C1096 549 1163 657 1051 801" stroke="#c0dad2" stroke-width="88"/>
+<path d="M176 437L1395 290M674 124L731 796" stroke="#fff9e8" stroke-width="38"/>
+<path d="M226 178H625L645 350L226 400Z" fill="#a9c783"/><path d="M226 178H625L645 350L226 400Z" fill="url(#rows)"/>
+<path d="M703 178H1009L1044 290L722 331Z" fill="#d5df9d"/>
+<path d="M229 473L649 422L679 711H229Z" fill="#d6b94a"/><path d="M229 473L649 422L679 711H229Z" fill="url(#rows)"/>
+<path d="M739 410L1016 377L1040 688L770 712Z" fill="#7ea966"/><path d="M739 410L1016 377L1040 688L770 712Z" fill="url(#rows)"/>
+<path d="M1179 368L1331 350V707H1180L1216 553Z" fill="#a9c783"/>
+<path d="M735 409L1016 376L1041 689L769 713Z" stroke="#005f36" stroke-width="9" stroke-linejoin="round"/>
+<g fill="#005f36"><circle cx="735" cy="409" r="12"/><circle cx="1016" cy="376" r="12"/><circle cx="1041" cy="689" r="12"/><circle cx="769" cy="713" r="12"/></g>
+</g>
+<path d="M883 512C883 512 960 436 960 389C960 346 925 312 883 312C840 312 806 346 806 389C806 436 883 512 883 512Z" fill="#005f36" stroke="#fff9e8" stroke-width="9"/><circle cx="883" cy="388" r="26" fill="#ffcf38"/>
+<rect x="1048" y="591" width="378" height="133" rx="30" fill="#005f36"/><circle cx="1105" cy="656" r="23" fill="#ffcf38"/><path d="M1094 658L1102 666L1117 647" stroke="#005f36" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1150" y="669" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="700" fill="#fff9e8">Your fields</text>
+<rect x="235" y="184" width="270" height="63" rx="22" fill="#fff9e8"/><text x="370" y="225" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#005f36">Illustrative map</text>
+<circle cx="1324" cy="190" r="54" fill="#fff9e8"/><path d="M1324 158L1305 204L1324 194L1343 204Z" fill="#005f36"/><circle cx="1473" cy="433" r="13" fill="#ffcf38"/><path d="M112 612V666M85 639H139" stroke="#a9c783" stroke-width="8" stroke-linecap="round"/>
+</svg>

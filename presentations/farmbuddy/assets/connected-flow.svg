@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">From harvest to cashbook</title><desc id="desc">Four illustrated steps connected left to right: harvest, stock, sale and cashbook. Conceptual workflow, not actual transaction data.</desc>
+<path d="M240 435H1360" stroke="#dce8cf" stroke-width="12" stroke-linecap="round"/>
+<g fill="#005f36"><path d="M427 419L449 435L427 451Z"/><path d="M797 419L819 435L797 451Z"/><path d="M1167 419L1189 435L1167 451Z"/></g>
+<rect x="80" y="250" width="300" height="370" rx="48" fill="#edf2e7"/><rect x="460" y="250" width="300" height="370" rx="48" fill="#fff4ce"/><rect x="840" y="250" width="300" height="370" rx="48" fill="#edf2e7"/><rect x="1220" y="250" width="300" height="370" rx="48" fill="#005f36"/>
+<g stroke="#005f36" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"><path d="M230 462V348M230 403C173 402 164 372 173 343C212 343 232 365 230 403Z" fill="#a9c783"/><path d="M231 377C281 374 295 344 286 320C250 322 231 341 231 377Z" fill="#ffcf38"/><path d="M154 430L173 493H286L306 430" fill="#ffcf38"/><path d="M182 455H277"/>
+<path d="M534 385L610 344L686 385V475L610 517L534 475Z" fill="#ffcf38"/><path d="M534 385L610 427L686 385M610 427V517M573 364L650 405"/>
+<path d="M913 398H1069L1053 491H930Z" fill="#a9c783"/><path d="M925 397L949 352M1057 397L1033 352M964 432V461M1017 432V461"/>
+</g>
+<circle cx="1070" cy="350" r="32" fill="#ffcf38"/><path d="M1057 350L1066 359L1084 339" stroke="#005f36" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1300" y="329" width="141" height="183" rx="16" fill="#fff9e8"/><path d="M1330 329V512" stroke="#a9c783" stroke-width="8"/><path d="M1355 375H1411M1355 406H1398M1355 437H1411" stroke="#005f36" stroke-width="9" stroke-linecap="round"/><circle cx="1440" cy="486" r="38" fill="#ffcf38"/><path d="M1422 487L1435 499L1458 473" stroke="#005f36" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+<g font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="700" text-anchor="middle" fill="#005f36"><text x="230" y="577">Harvest</text><text x="610" y="577">Stock</text><text x="990" y="577">Sale</text><text x="1370" y="577" fill="#fff9e8">Cashbook</text></g>
+<path d="M230 674C514 768 1086 768 1370 674" stroke="#a9c783" stroke-width="5" stroke-dasharray="10 18" stroke-linecap="round"/>
+<circle cx="800" cy="718" r="22" fill="#ffcf38"/><path d="M792 718L798 724L809 711" stroke="#005f36" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

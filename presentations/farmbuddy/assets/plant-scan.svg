@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">Capture a leaf, explore references</title><desc id="desc">Illustrative leaf inside camera framing, connected to two stylized reference-photo cards. No real photographs, diagnoses, disease predictions or accuracy claims are shown.</desc>
+<path d="M258 707C100 548 177 294 370 228C601 149 782 286 796 480C809 656 675 772 486 762" fill="#edf2e7"/>
+<circle cx="330" cy="249" r="67" fill="#ffcf38"/>
+<rect x="300" y="148" width="523" height="616" rx="56" fill="#fff9e8" stroke="#dce8cf" stroke-width="3"/>
+<rect x="336" y="185" width="451" height="473" rx="35" fill="#dce8cf"/>
+<path d="M458 566C349 429 453 307 665 276C712 466 630 586 458 566Z" fill="#005f36"/>
+<path d="M438 593L639 312M507 498L488 402M548 441L641 427M585 390L575 335" stroke="#a9c783" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M383 288V243H428M697 243H741V288M741 555V600H697M428 600H383V555" stroke="#fff9e8" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="477" y="684" width="169" height="47" rx="23" fill="#005f36"/>
+<path d="M540 699H549L553 694H570L574 699H583V718H540Z" stroke="#fff9e8" stroke-width="3" stroke-linejoin="round"/><circle cx="561" cy="708" r="6" stroke="#fff9e8" stroke-width="3"/>
+<path d="M851 448H958M930 424L956 448L930 472" stroke="#005f36" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+<g transform="rotate(-7 1140 345)"><rect x="1000" y="170" width="335" height="367" rx="30" fill="#fff9e8" stroke="#dce8cf" stroke-width="3"/><rect x="1024" y="194" width="287" height="247" rx="20" fill="#a9c783"/><path d="M1118 402C1060 313 1123 248 1246 233C1276 344 1211 410 1118 402Z" fill="#005f36"/><path d="M1104 421L1232 251" stroke="#dce8cf" stroke-width="8" stroke-linecap="round"/><text x="1030" y="493" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#005f36">Reference photo</text></g>
+<g transform="rotate(7 1250 594)"><rect x="1071" y="415" width="335" height="367" rx="30" fill="#fff9e8" stroke="#dce8cf" stroke-width="3"/><rect x="1095" y="439" width="287" height="247" rx="20" fill="#fff0bb"/><path d="M1188 646C1129 559 1196 491 1317 477C1346 586 1280 654 1188 646Z" fill="#7ea966"/><path d="M1175 664L1302 494" stroke="#005f36" stroke-width="8" stroke-linecap="round"/><text x="1101" y="738" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#005f36">Reference photo</text></g>
+<rect x="954" y="105" width="343" height="64" rx="25" fill="#005f36"/><text x="1125" y="147" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" text-anchor="middle" fill="#fff9e8">Illustrative workflow</text>
+<path d="M1435 288V342M1408 315H1462" stroke="#ffcf38" stroke-width="9" stroke-linecap="round"/><circle cx="227" cy="617" r="13" fill="#005f36"/>
+</svg>
