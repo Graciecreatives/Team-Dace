@@ -4,18 +4,30 @@ export function amountToCents(value) {
   const text = String(value).trim()
   if (!/^\+?\d+(?:\.\d*)?$/.test(text)) return null
   const [whole, fraction = ''] = text.replace(/^\+/, '').split('.')
-  const cents = Number(whole) * 100 + Number((fraction + '00').slice(0, 2)) + (Number(fraction[2] || 0) >= 5 ? 1 : 0)
-  return Number.isSafeInteger(cents) ? cents : null
+  const cents = BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2)) + (Number(fraction[2] || 0) >= 5 ? 1n : 0n)
+  return cents <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cents) : null
 }
 
 export function isCashEntry(record) {
   return ['income', 'expense'].includes(record?.category)
 }
 
+function entryDate(value) {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  // Reject calendar rollovers such as February 30, not valid saved dates.
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value)
+  if (match) {
+    const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+    if (day.getUTCMonth() + 1 !== Number(match[2]) || day.getUTCDate() !== Number(match[3])) return null
+  }
+  return date
+}
+
 // Use UTC consistently so a saved instant never changes month across devices.
 export function entryMonth(record) {
-  const date = new Date(record?.createdAt)
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 7)
+  return entryDate(record?.createdAt)?.toISOString().slice(0, 7) || ''
 }
 
 export function filterEntries(records = [], { month = '', category = '', search = '' } = {}) {
@@ -61,9 +73,9 @@ export function csvCell(value) {
 export function exportEntriesCsv(records = []) {
   const rows = [['Date (UTC)', 'Title', 'Category', 'Amount (NGN)', 'Note']]
   for (const record of records.filter(isCashEntry)) {
-    const date = new Date(record.createdAt)
+    const date = entryDate(record.createdAt)
     const cents = amountToCents(record.amount)
-    rows.push([Number.isNaN(date.getTime()) ? '' : date.toISOString(), record.title, record.category, cents === null ? '' : (cents / 100).toFixed(2), record.note])
+    rows.push([date?.toISOString() || '', record.title, record.category, cents === null ? '' : `${BigInt(cents) / 100n}.${String(BigInt(cents) % 100n).padStart(2, '0')}`, record.note])
   }
   return rows.map(row => row.map(csvCell).join(',')).join('\r\n')
 }
