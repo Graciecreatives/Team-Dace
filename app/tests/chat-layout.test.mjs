@@ -16,11 +16,16 @@ test('assistant SFC compiles script, template and scoped styles', () => {
   assert.deepEqual(compileStyle({ source: css, id: 'chat-layout', scoped: true }).errors, [])
 })
 
-test('dashboard owns scrolling, conversation has no nested height cap or forced scrolling', () => {
+test('chat keeps composer outside its bounded scrolling history', () => {
   const rules = [...css.matchAll(/\.conversation\s*\{([^}]+)\}/g)].map(match => match[1]).join('\n')
   assert.match(rules, /flex:\s*1/)
   assert.doesNotMatch(rules, /(?:max-height|overflow|overscroll-behavior|height):/)
-  assert.doesNotMatch(source, /45dvh|scrollTop|scrollIntoView/)
+  assert.match(css, /\.chat-workspace\s*\{[^}]*height:calc\(var\(--chat-viewport-height, 100dvh\) - 116px\)/)
+  assert.match(css, /\.chat-history\s*\{[^}]*min-height:0;[^}]*overflow-y:auto/)
+  assert.match(css, /\.chat-workspace \.composer-area\s*\{[^}]*flex-shrink:0/)
+  assert.doesNotMatch(source, /scrollIntoView|window\.scrollTo/)
+  assert.match(source, /panel\.scrollTo\(/)
+  assert.match(source, /if \(followReply\) await revealLatestReply\(\)/)
   assert.match(css, /overflow:\s*clip/)
   assert.match(css, /\.composer-actions, \.input-tools \{ flex-wrap:wrap/)
   assert.match(css, /box-sizing:border-box/)
@@ -46,7 +51,7 @@ test('actual compiled template mounts empty and long-thread layout with accessib
   const directive = {}
   const render = new Function('Vue', `${code}; return render`)({ ...vue, vModelText: directive, vModelSelect: directive, vModelCheckbox: directive, vShow: directive })
   const context = {
-    messages: [], workspace: 'chat', photoMode: false, status: { chat: false, photo: false, voice: false }, statusError: '', checkingStatus: false,
+    messages: [], workspace: 'chat', photoMode: false, viewportHeight: null, keyboardOpen: false, status: { chat: false, photo: false, voice: false }, statusError: '', checkingStatus: false,
     farmLabel: 'Crop farm', starters: [], includeFarmContext: false, busy: false, speaking: false, task: 'chat', question: '', image: null,
     dictationSupported: false, dictationActive: false, listening: false, dictationNotice: '', error: '', audioUrl: '',
     changeWorkspace() {}, choosePhotoMode() {}, clearSession() {}, refreshStatus() {}, changeFarmContext() {}, send() {}, chooseImage() {}, stopDictation() {}, startDictation() {}
@@ -58,6 +63,13 @@ test('actual compiled template mounts empty and long-thread layout with accessib
   const all = el => [el, ...el.children.flatMap(all)]
   const hasClass = (el, name) => String(el.props.class || '').split(' ').includes(name)
   assert.ok(all(root).some(el => hasClass(el, 'welcome')))
+  const toolNav = all(root).find(el => hasClass(el, 'workspace-switch'))
+  const toolButtons = toolNav.children.filter(el => el.type === 'button')
+  assert.equal(toolButtons.length, 5)
+  assert.ok(toolButtons.every(el => typeof el.props['aria-label'] === 'string' && el.props['aria-label'].length > 12))
+  assert.deepEqual(all(toolNav).filter(el => hasClass(el, 'mobile-tool-name')).map(el => el.text), ['Chat', 'Photo', 'Record', 'Plants', 'Cattle'])
+  assert.match(css, /grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/)
+  assert.match(css, /min-height:68px/)
   vm.messages = Array.from({ length: 16 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: 'Long farming guidance. '.repeat(300), model: 'test/model' }))
   await nextTick()
   const elements = all(root)
@@ -65,9 +77,11 @@ test('actual compiled template mounts empty and long-thread layout with accessib
   assert.ok(!elements.some(el => hasClass(el, 'welcome')))
   const conversation = elements.find(el => hasClass(el, 'conversation'))
   const composer = elements.find(el => hasClass(el, 'composer-area'))
-  assert.equal(conversation.parent, composer.parent)
-  assert.ok(conversation.parent.children.indexOf(conversation) < conversation.parent.children.indexOf(composer))
-  assert.ok(elements.some(el => el.type === 'a' && el.props.href === '#assistant-question'))
+  assert.equal(conversation.parent.props['aria-label'], 'Chat messages and help')
+  assert.equal(conversation.parent.props.tabindex, '0')
+  assert.equal(conversation.parent.parent, composer.parent)
+  assert.ok(composer.parent.children.indexOf(conversation.parent) < composer.parent.children.indexOf(composer))
+  assert.ok(!elements.some(el => hasClass(el, 'thread-navigation')))
   assert.ok(elements.some(el => el.type === 'textarea' && el.props.id === 'assistant-question'))
   assert.equal(conversation.props.tabindex, undefined)
   app.unmount()

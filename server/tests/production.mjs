@@ -98,7 +98,7 @@ try {
   assert.equal(animalStatus.configured, false)
   assert.equal(animalStatus.experimental, true)
   assert.equal(animalStatus.animal, 'cattle')
-  assert.deepEqual((await call('/api/assistant/status', 'GET', undefined, registered.cookie)).value, { chat: false, photo: false, voice: false })
+  assert.deepEqual((await call('/api/assistant/status', 'GET', undefined, registered.cookie)).value, { chat: false, photo: false, voice: false, transcription: false })
   assert.equal((await call('/api/community', 'GET', undefined, registered.cookie)).value.profile.visible, false)
   assert.equal((await call('/api/community', 'POST', { action: 'search', latitude: 7.4, longitude: 3.9 }, registered.cookie)).value.farmers.length, 0)
   const noAI = await fetch(base + '/api/assistant/chat', { method: 'POST', headers: { Origin: `https://127.0.0.1:${port}`, 'Content-Type': 'application/json', Cookie: registered.cookie }, body: JSON.stringify({ messages: [{ role: 'user', content: 'How can I inspect my maize?' }] }) })

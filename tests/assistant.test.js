@@ -5,7 +5,11 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { rollup } from 'rollup'
+import { nodeResolve } from '@rollup/plugin-node-resolve'
+import commonjs from '@rollup/plugin-commonjs'
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare'
 import { createHash } from 'node:crypto'
 import { createApp, toNodeListener } from 'h3'
 import { assistantChat, assistantSpeak, assistantStatus, validateChat, assistantLimit } from '../server/utils/assistant.js'
@@ -30,7 +34,7 @@ test('assistant dictation separates permission from capture and cleans up timers
   const ref = value => ({ value })
   const state = runInNewContext(`${block}\ndictationSupported.value = true; ({ startDictation, stopDictation, releaseDictation, listening, dictationPending, dictationStopping, dictationSeconds, dictationTime, dictationActive, dictationNotice })`, {
     ref, computed: getter => ({ get value() { return getter() } }),
-    window: { SpeechRecognition: Recognition }, question: ref(''), busy: ref(false), speaking: ref(false),
+    window: { SpeechRecognition: Recognition }, navigator: {}, status: ref({ transcription: false }), question: ref(''), busy: ref(false), speaking: ref(false),
     Date: { now: () => now },
     setTimeout: (callback, delay) => { timers.set(++id, { callback, delay }); return id },
     clearTimeout: key => timers.delete(key),
@@ -84,9 +88,9 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   t.after(() => { for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key] } })
   delete process.env.FARMBUDDY_AI_MODEL
   delete process.env.YARNGPT_API_KEY
-  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false })
+  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false, transcription: false })
   process.env.YARNGPT_API_KEY = '   '
-  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false })
+  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false, transcription: false })
   delete process.env.FARMBUDDY_AI_MODEL
   delete process.env.YARNGPT_API_KEY
   await assert.rejects(assistantChat(input, {}), errorStatus(503))
@@ -114,14 +118,15 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   const result = await assistantChat(input, { farmType: 'crop', email: 'private@example.com' }, env)
   assert.equal(result.text, 'Inspect leaves and ask your extension officer.')
   const event = { context: { cloudflare: { env } } }
-  assert.deepEqual(await assistantStatus(event), { chat: true, photo: false, voice: false })
-  assert.deepEqual(await assistantStatus({ context: { cloudflare: { env: { AI: {} } } } }), { chat: false, photo: false, voice: false })
-  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false })
+  assert.deepEqual(await assistantStatus(event), { chat: true, photo: false, voice: false, transcription: true })
+  assert.deepEqual(await assistantStatus({ context: { cloudflare: { env: { AI: {} } } } }), { chat: false, photo: false, voice: false, transcription: false })
+  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false, transcription: false })
   await assert.rejects(assistantChat(input, {}), errorStatus(503))
   await assert.rejects(assistantChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' }, {}, native(() => assert.fail('No native vision contract'))), errorStatus(503))
   for (const model of ['https://evil.example/model', 'vendor/not-a-native-model']) {
     process.env.FARMBUDDY_AI_MODEL = model
     assert.equal((await assistantStatus(event)).chat, false)
+    assert.equal((await assistantStatus(event)).transcription, true)
     await assert.rejects(assistantChat(input, {}, env), errorStatus(503))
   }
   process.env.FARMBUDDY_AI_MODEL = '@cf/test/text-model'
@@ -166,6 +171,8 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   delete process.env.YARNGPT_VOICE
   const audio = await assistantSpeak({ text: 'Inspect your leaves.' }, async (url, options) => {
     assert.equal(url, 'https://api.yarngpt.ai/api/v1/streaming/conversation')
+    assert.equal(options.redirect, 'manual')
+    assert.ok(options.signal instanceof AbortSignal)
     assert.equal(JSON.parse(options.body).voice, undefined)
     assert.equal(JSON.parse(options.body).output_format, 'mp3')
     assert.ok(options.headers['Idempotency-Key'])
@@ -183,10 +190,98 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   }
   await assert.rejects(assistantSpeak({ text: 'x'.repeat(4001) }), errorStatus(400))
   await assert.rejects(assistantSpeak({ text: 'Hello' }, async () => Response.json({ secret: 'hidden' })), errorStatus(502))
+  for (const code of [301, 302, 303, 307, 308, 400, 401, 402, 403, 404, 422, 429, 500]) {
+    let calls = 0
+    await assert.rejects(assistantSpeak({ text: 'Hello' }, async (_url, options) => {
+      calls++
+      assert.equal(options.redirect, 'manual')
+      return new Response('raw-provider-secret', { status: code, headers: { Location: 'https://untrusted.invalid/audio' } })
+    }), error => error.statusCode === 502 && !error.message.includes('raw-provider-secret'))
+    assert.equal(calls, 1)
+  }
+  for (const response of [
+    new Response(null, { headers: { 'content-type': 'audio/mpeg' } }),
+    new Response('', { headers: { 'content-type': 'audio/mpeg' } }),
+    new Response('malformed', { headers: { 'content-type': 'application/json' } }),
+    new Response(new Uint8Array(8 * 1024 * 1024 + 1), { headers: { 'content-type': 'audio/mpeg' } }),
+    new Response(new ReadableStream({ start(controller) { controller.error(new Error('private stream error')) } }), { headers: { 'content-type': 'audio/mpeg' } }),
+  ]) await assert.rejects(assistantSpeak({ text: 'Hello' }, async () => response), error => error.statusCode === 502 && !error.message.includes('private'))
+  await t.test('speech passes a 45-second cancellation signal and handles timeout privately', async clock => {
+    const timeout = AbortSignal.timeout
+    const controller = new AbortController()
+    clock.mock.method(AbortSignal, 'timeout', milliseconds => {
+      assert.equal(milliseconds, 45000)
+      return controller.signal
+    })
+    const pending = assistantSpeak({ text: 'Hello' }, async (_url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+    }))
+    const rejected = assert.rejects(pending, error => error.statusCode === 502 && !error.message.includes('private'))
+    controller.abort(new DOMException('private timeout', 'TimeoutError'))
+    await rejected
+    clock.mock.restoreAll()
+    assert.equal(AbortSignal.timeout, timeout)
+  })
   for (let i = 0; i < 10; i++) assistantLimit('rate-test')
   assert.throws(() => assistantLimit('rate-test'), errorStatus(429))
   delete process.env.FARMBUDDY_AI_MODEL
   delete process.env.YARNGPT_API_KEY
+})
+
+test('production speech succeeds in workerd and refuses redirects without forwarding text or bearer keys', { timeout: 60000 }, async () => {
+  const directory = await mkdtemp(join(process.env.JCODE_SCRATCH_DIR || tmpdir(), 'farmbuddy-speech-workerd-'))
+  let bundle, worker
+  try {
+    const entry = join(directory, 'entry.js')
+    bundle = await rollup({
+      input: entry, external: id => id.startsWith('node:') || id === 'cloudflare:workers',
+      plugins: [{ name: 'speech-worker', resolveId(id) { if (id === entry) return entry }, load(id) {
+        if (id === entry) return `
+          import { Buffer } from 'node:buffer'
+          import { assistantSpeak } from ${JSON.stringify(resolve('server/utils/assistant.js'))}
+          globalThis.Buffer = Buffer
+          export default { async fetch(request, env) {
+            process.env.YARNGPT_API_KEY = env.YARNGPT_API_KEY
+            delete process.env.YARNGPT_VOICE
+            try { return new Response(await assistantSpeak(await request.json()), { headers: { 'content-type': 'audio/mpeg' } }) }
+            catch (error) { return Response.json({ message: error.statusMessage || error.message }, { status: error.statusCode || 500 }) }
+          } }
+        `
+      } }, nodeResolve({ preferBuiltins: true, exportConditions: ['workerd'] }), commonjs()],
+    })
+    const { output } = await bundle.generate({ format: 'esm', entryFileNames: 'worker.js' })
+    let providerStatus = 200
+    let calls = 0
+    worker = new Miniflare(convertV4MiniflareOptions({
+      compatibilityDate: '2026-10-24', compatibilityFlags: ['nodejs_compat'], modulesRoot: directory,
+      modules: output.map(file => ({ type: 'ESModule', path: join(directory, file.fileName), contents: file.code })),
+      bindings: { YARNGPT_API_KEY: 'fake-workerd-voice-key' },
+      outboundService: async request => {
+        calls++
+        assert.equal(request.url, 'https://api.yarngpt.ai/api/v1/streaming/conversation')
+        assert.equal(request.method, 'POST')
+        assert.equal(request.headers.get('authorization'), 'Bearer fake-workerd-voice-key')
+        assert.ok(request.headers.get('idempotency-key'))
+        assert.deepEqual(await request.json(), { text: 'Inspect leaves.', output_format: 'mp3' })
+        if (providerStatus !== 200) return new Response(null, { status: providerStatus, headers: { Location: 'https://untrusted.invalid/audio' } })
+        return new Response(new Uint8Array([73, 68, 51]), { headers: { 'content-type': 'audio/mpeg' } })
+      },
+    }))
+    const speak = () => worker.dispatchFetch('https://worker.test/speak', { method: 'POST', body: JSON.stringify({ text: 'Inspect leaves.' }), headers: { 'content-type': 'application/json' } })
+    const response = await speak()
+    assert.equal(response.status, 200, await response.clone().text())
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([73, 68, 51]))
+    for (const code of [301, 302, 303, 307, 308]) {
+      providerStatus = code
+      const before = calls
+      const rejected = await speak()
+      assert.equal(rejected.status, 502, await rejected.clone().text())
+      assert.match((await rejected.json()).message, /YarnGPT is temporarily unavailable/)
+      assert.equal(calls, before + 1)
+    }
+  } finally {
+    try { await worker?.dispose(); await bundle?.close() } finally { await rm(directory, { recursive: true, force: true }) }
+  }
 })
 
 test('local authenticated handlers return 401, disabled 503, malformed 400 and CSRF 403', async t => {
@@ -214,7 +309,7 @@ test('local authenticated handlers return 401, disabled 503, malformed 400 and C
   try {
     assert.equal((await fetch(`${base}/status`)).status, 401)
     assert.equal((await fetch(`${base}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })).status, 401)
-    assert.deepEqual(await (await fetch(`${base}/status`, { headers })).json(), { chat: false, photo: false, voice: false })
+    assert.deepEqual(await (await fetch(`${base}/status`, { headers })).json(), { chat: false, photo: false, voice: false, transcription: false })
     assert.equal((await fetch(`${base}/chat`, { method: 'POST', headers, body: JSON.stringify(input) })).status, 503)
     assert.equal((await fetch(`${base}/speak`, { method: 'POST', headers, body: JSON.stringify({ text: 'Hello' }) })).status, 503)
     assert.equal((await fetch(`${base}/chat`, { method: 'POST', headers, body: '{' })).status, 400)

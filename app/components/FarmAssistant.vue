@@ -3,10 +3,17 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Sprout, Plus, Camera, Mic, ArrowUpRight, X, Leaf, Stethoscope, Volume2, MessageCircle, PlugZap, Beef } from 'lucide-vue-next'
 import FarmScan from './FarmScan.vue'
 import FarmAnimalScan from './FarmAnimalScan.vue'
+import { createChatRecorder } from '../utils/chat-recorder.js'
 const props = defineProps({ user: { type: Object, required: true } })
 const emit = defineEmits(['records-changed'])
 const workspace = ref('chat')
 const photoMode = ref(false)
+const viewportHeight = ref(null)
+const keyboardOpen = ref(false)
+function updateChatViewport() {
+  viewportHeight.value = window.visualViewport?.height || null
+  keyboardOpen.value = Boolean(viewportHeight.value && window.innerHeight - viewportHeight.value > 120)
+}
 function changeWorkspace(value) {
   releaseDictation()
   clearAudio()
@@ -14,11 +21,21 @@ function changeWorkspace(value) {
   photoMode.value = false
 }
 async function choosePhotoMode() {
+  if (!status.value?.photo) { changeWorkspace('scan'); return }
   changeWorkspace('chat')
   photoMode.value = true
   await nextTick()
   if (status.value?.chat && status.value?.photo) picker.value?.click()
   else draft.value?.focus()
+}
+async function askAboutPlant(value) {
+  if (busy.value || speaking.value || typeof value !== 'string') return
+  clearSession()
+  changeWorkspace('chat')
+  task.value = 'plant-health'
+  question.value = value.slice(0, 4000)
+  await nextTick()
+  draft.value?.focus()
 }
 async function askAboutAnimal(value) {
   if (busy.value || speaking.value) return
@@ -68,6 +85,12 @@ const error = ref('')
 const audioUrl = ref('')
 const picker = ref(null)
 const draft = ref(null)
+const historyPanel = ref(null)
+async function revealLatestReply() {
+  await nextTick()
+  const panel = historyPanel.value
+  if (panel) panel.scrollTo({ top: panel.scrollHeight, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth' })
+}
 const farmLabel = computed(() => props.user.farmType === 'livestock' ? 'Livestock farm' : props.user.farmType === 'crops' ? 'Crop farm' : 'Mixed farm')
 const starters = [
   { icon: Leaf, label: 'Check my crops', task: 'plant-health', text: 'I noticed a change in my crops. The crop is ... and the symptoms are ...' },
@@ -94,11 +117,13 @@ const dictationLanguages = [
   { code: 'en-US', label: 'English (United States)' },
   { code: 'ha-NG', label: 'Hausa' },
   { code: 'yo-NG', label: 'Yoruba' },
-  { code: 'ig-NG', label: 'Igbo' },
   { code: 'fr-FR', label: 'French' },
   { code: 'sw-KE', label: 'Swahili' }
 ]
 let recognition
+let audioRecorder
+let transcriptionController
+let microphoneGeneration = 0
 let dictationTimer
 let dictationClock
 let disposed = false
@@ -106,6 +131,11 @@ let controller
 let readGeneration = 0
 let sessionGeneration = 0
 function releaseDictation() {
+  microphoneGeneration++
+  audioRecorder?.cancel()
+  audioRecorder = undefined
+  transcriptionController?.abort()
+  transcriptionController = undefined
   const active = recognition
   recognition = undefined
   clearTimeout(dictationTimer)
@@ -120,6 +150,12 @@ function releaseDictation() {
   }
 }
 function stopDictation() {
+  if (audioRecorder) {
+    if (dictationStopping.value) return
+    if (dictationPending.value) { releaseDictation(); dictationNotice.value = 'Microphone cancelled.'; return }
+    audioRecorder.stop()
+    return
+  }
   if (!recognition || dictationStopping.value) return
   if (dictationPending.value) { releaseDictation(); dictationNotice.value = 'Dictation cancelled. You can still type your question.'; return }
   dictationStopping.value = true
@@ -134,6 +170,7 @@ function startDictation() {
   if (disposed || dictationActive.value || busy.value || speaking.value || !dictationSupported.value) return
   if (question.value.length >= 4000) { dictationNotice.value = 'The question is full. Shorten it before dictating more.'; return }
   releaseDictation()
+  if (status.value?.transcription && navigator.mediaDevices?.getUserMedia && window.MediaRecorder) { startNativeDictation(); return }
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
   const generation = sessionGeneration
   try {
@@ -185,6 +222,52 @@ function startDictation() {
     dictationNotice.value = 'Could not start microphone dictation. Please type your question instead.'
   }
 }
+async function startNativeDictation() {
+  const generation = microphoneGeneration
+  const current = () => !disposed && generation === microphoneGeneration
+  audioRecorder = createChatRecorder({
+    mediaDevices: navigator.mediaDevices, MediaRecorder: window.MediaRecorder,
+    onState(state) {
+      if (!current()) return
+      dictationPending.value = state === 'permission'
+      listening.value = state === 'recording'
+      dictationStopping.value = state === 'processing'
+      clearInterval(dictationClock)
+      if (state === 'permission') dictationNotice.value = 'Allow microphone access, then speak.'
+      if (state === 'recording') {
+        const started = Date.now()
+        dictationClock = setInterval(() => { dictationSeconds.value = Math.min(60, Math.floor((Date.now() - started) / 1000)) }, 250)
+        dictationNotice.value = 'Listening. Stop to turn your recording into text.'
+      }
+    },
+    onError() { if (current()) { releaseDictation(); dictationNotice.value = 'Microphone unavailable. Check permission or type your question.' } },
+    async onAudio(blob) {
+      if (!current()) return
+      dictationStopping.value = true
+      dictationNotice.value = 'Turning your recording into text…'
+      transcriptionController = new AbortController()
+      try {
+        const audio = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = () => reject(new Error('Audio could not be read'))
+          reader.readAsDataURL(new Blob([blob], { type: blob.type.split(';')[0] }))
+        })
+        if (!current()) return
+        const result = await $fetch('/api/assistant/transcribe', { method: 'POST', retry: 0, timeout: 50000, signal: transcriptionController.signal, body: { audio, language: dictationLanguage.value.split('-')[0] } })
+        if (!current()) return
+        if (typeof result.text !== 'string') throw new Error('Invalid transcription')
+        question.value = `${question.value.trimEnd()}${question.value.trim() && result.text.trim() ? ' ' : ''}${result.text.trim()}`.slice(0, 4000)
+        dictationNotice.value = result.text.trim() ? 'Ready. Check the words, then Send.' : 'No words heard. Try again or type.'
+        await nextTick()
+        if (current()) draft.value?.focus({ preventScroll: true })
+      } catch (failure) {
+        if (current()) dictationNotice.value = failure?.data?.statusMessage || 'Could not turn the recording into text. Try again or type.'
+      } finally { if (current()) { dictationStopping.value = false; audioRecorder = undefined; transcriptionController = undefined } }
+    }
+  })
+  await audioRecorder.start()
+}
 function clearAudio() { if (audioUrl.value) URL.revokeObjectURL(audioUrl.value); audioUrl.value = '' }
 function removeImage() { readGeneration++; image.value = null; filename.value = ''; if (picker.value) picker.value.value = '' }
 async function chooseImage(event) {
@@ -207,11 +290,14 @@ async function send() {
   const content = question.value.trim()
   const history = [...messages.value.map(item => ({ role: item.role, content: item.content.slice(0, 4000) })), { role: 'user', content }].slice(-5)
   try {
-    const result = await $fetch('/api/assistant/chat', { method: 'POST', body: { task: task.value, messages: history, includeFarmContext: includeFarmContext.value, ...(image.value ? { image: image.value } : {}) }, signal: controller.signal })
+    const result = await $fetch('/api/assistant/chat', { method: 'POST', timeout: 65000, retry: 0, body: { task: task.value, messages: history, includeFarmContext: includeFarmContext.value, ...(image.value ? { image: image.value } : {}) }, signal: controller.signal })
     if (disposed || generation !== sessionGeneration) return
+    const panel = historyPanel.value
+    const followReply = !messages.value.length || !panel || panel.scrollHeight - panel.scrollTop - panel.clientHeight < 96
     messages.value = [...messages.value, { role: 'user', content, photo: Boolean(image.value) }, { role: 'assistant', content: result.text, model: result.model, sources: safeSources(result.sources), contextUsed: result.contextUsed === true }].slice(-16)
     question.value = ''
     removeImage()
+    if (followReply) await revealLatestReply()
   } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.data?.statusMessage || (failure?.statusCode === 401 ? 'Please sign in again.' : 'Unable to get an answer. Check your connection or try again later.') }
   finally { if (generation === sessionGeneration) busy.value = false }
 }
@@ -223,7 +309,7 @@ async function speak(message) {
   controller = new AbortController()
   const generation = sessionGeneration
   try {
-    const blob = await $fetch('/api/assistant/speak', { method: 'POST', body: { text: message.content.slice(0, 4000) }, responseType: 'blob', signal: controller.signal })
+    const blob = await $fetch('/api/assistant/speak', { method: 'POST', timeout: 50000, retry: 0, body: { text: message.content.slice(0, 4000) }, responseType: 'blob', signal: controller.signal })
     if (!disposed && generation === sessionGeneration) audioUrl.value = URL.createObjectURL(blob)
   } catch (failure) { if (!disposed && generation === sessionGeneration) error.value = failure?.data?.statusMessage || 'Voice is unavailable. The written answer is still available.' }
   finally { if (generation === sessionGeneration) speaking.value = false }
@@ -231,14 +317,16 @@ async function speak(message) {
 function clearSession() { includeFarmContext.value = false; sessionGeneration++; releaseDictation(); dictationNotice.value = ''; error.value = ''; controller?.abort(); busy.value = false; speaking.value = false; messages.value = []; question.value = ''; removeImage(); clearAudio() }
 watch(() => props.user.id, () => { statusController?.abort(); clearSession(); status.value = null; checkingStatus.value = false; refreshStatus() })
 onMounted(() => {
-  dictationSupported.value = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+  updateChatViewport()
+  window.visualViewport?.addEventListener('resize', updateChatViewport)
+  dictationSupported.value = Boolean((navigator.mediaDevices?.getUserMedia && window.MediaRecorder) || window.SpeechRecognition || window.webkitSpeechRecognition)
   refreshStatus()
 })
-onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession() })
+onBeforeUnmount(() => { window.visualViewport?.removeEventListener('resize', updateChatViewport); disposed = true; statusController?.abort(); clearSession() })
 </script>
 
 <template>
-  <section aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length }">
+  <section aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length, 'chat-workspace': workspace === 'chat', 'keyboard-open': keyboardOpen }" :style="viewportHeight ? { '--chat-viewport-height': `${viewportHeight}px` } : undefined">
     <header class="companion-bar">
       <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ statusError ? 'Connection check failed' : status ? (status.chat ? 'AI chat configured' : 'Setup needed to send') : 'Checking availability…' }}</p></div></div>
       <span class="farm-type">{{ farmLabel }}</span>
@@ -246,16 +334,17 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
     </header>
 
     <nav class="workspace-switch" aria-label="FarmBuddyAI tools">
-      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'chat' && !photoMode" @click="changeWorkspace('chat')"><MessageCircle :size="22" aria-hidden="true" /><span><strong>Ask a question</strong><small>Work through your next step</small></span></button>
-      <button type="button" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Discuss a photo</strong><small>General AI guidance</small></span></button>
-      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="22" aria-hidden="true" /><span><strong>Voice to farm record</strong><small>Speak, review, then save</small></span></button>
-      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'scan'" @click="changeWorkspace('scan')"><Leaf :size="22" aria-hidden="true" /><span><strong>Scan a plant</strong><small>Specialist image recognition</small></span></button>
-      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'animal-scan'" @click="changeWorkspace('animal-scan')"><Beef :size="22" aria-hidden="true" /><span><strong>Check a cow photo</strong><small>Experimental visual screening</small></span></button>
+      <button type="button" aria-label="Ask FarmBuddyAI a question" :disabled="busy || speaking" :aria-pressed="workspace === 'chat' && !photoMode" @click="changeWorkspace('chat')"><MessageCircle :size="22" aria-hidden="true" /><span><strong>Ask a question</strong><small>Work through your next step</small></span><span class="mobile-tool-name">Chat</span></button>
+      <button type="button" aria-label="Discuss a photo with FarmBuddyAI" :disabled="busy || speaking" :aria-pressed="photoMode" @click="choosePhotoMode"><Camera :size="22" aria-hidden="true" /><span><strong>Discuss a photo</strong><small>General AI guidance</small></span><span class="mobile-tool-name">Photo</span></button>
+      <button type="button" aria-label="Turn voice into a farm record" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="22" aria-hidden="true" /><span><strong>Voice to farm record</strong><small>Speak, review, then save</small></span><span class="mobile-tool-name">Record</span></button>
+      <button type="button" aria-label="Scan a plant with Pl@ntNet" :disabled="busy || speaking" :aria-pressed="workspace === 'scan'" @click="changeWorkspace('scan')"><Leaf :size="22" aria-hidden="true" /><span><strong>Scan a plant</strong><small>Specialist image recognition</small></span><span class="mobile-tool-name">Plants</span></button>
+      <button type="button" aria-label="Experimental cattle photo check" :disabled="busy || speaking" :aria-pressed="workspace === 'animal-scan'" @click="changeWorkspace('animal-scan')"><Beef :size="22" aria-hidden="true" /><span><strong>Check a cow photo</strong><small>Experimental visual screening</small></span><span class="mobile-tool-name">Cattle</span></button>
     </nav>
     <FarmAnimalScan v-if="workspace === 'animal-scan'" :user="user" @ask-ai="askAboutAnimal" />
-    <FarmScan v-if="workspace === 'scan'" :user="user" />
+    <FarmScan v-if="workspace === 'scan'" :user="user" @ask-ai="askAboutPlant" />
     <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
     <div v-show="workspace === 'chat'" class="companion-body">
+      <div ref="historyPanel" class="chat-history" tabindex="0" aria-label="Chat messages and help">
       <details class="connection-details">
         <summary><PlugZap :size="17" aria-hidden="true" /><span>{{ statusError ? 'Connection check failed' : !status ? 'Checking AI availability…' : status.chat ? 'AI chat configured' : 'AI connection needs setup' }}<small v-if="status">Photos {{ status.photo ? 'configured' : 'not verified' }} · Spoken replies {{ status.voice ? 'configured' : 'not configured' }}</small></span><span class="connection-action">Connection details</span></summary>
       <div class="configuration-note" role="status">
@@ -281,7 +370,6 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         </div>
       </div>
 
-      <nav v-if="messages.length" class="thread-navigation" aria-label="Conversation navigation"><a href="#assistant-question">Write a reply ↓</a><a href="#farm-assistant-title">Back to conversation start ↑</a></nav>
       <ol v-if="messages.length" class="conversation" aria-label="Conversation" aria-live="polite">
         <li v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
           <p class="message-author">{{ message.role === 'user' ? 'You' : `FarmBuddyAI · ${message.model}` }}</p>
@@ -294,6 +382,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <li v-if="busy" class="message assistant pending" role="status">Looking into your question…</li>
       </ol>
 
+      </div>
       <div class="composer-area">
         <p v-if="photoMode" class="photo-mode-hint"><Camera :size="18" aria-hidden="true" />{{ status?.photo ? 'Add a clear photo, then describe what changed. You review sharing before sending.' : 'Photo analysis is not verified yet. You can describe what you see instead.' }}</p>
         <div class="farm-context-control"><button type="button" :aria-pressed="includeFarmContext" :disabled="busy || speaking" @click="changeFarmContext(!includeFarmContext)">{{ includeFarmContext ? '✓ Using farm records' : '+ Use farm records' }}</button><details><summary>Sharing details</summary><p>Optional: sends a limited snapshot of your own crop/animal register, stock, reminders, seasons, tasks and observations to Cloudflare Workers AI when you press Send. Excludes finances, private notes, contacts and team details. Changing this starts a new conversation and does not undo earlier sharing.</p></details></div>
@@ -305,7 +394,8 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
           <div class="composer-actions">
             <div class="input-tools">
               <input id="assistant-photo" ref="picker" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy || !status?.chat || !status?.photo" @change="chooseImage">
-              <button type="button" class="icon-button labeled-tool" aria-label="Attach a photo, JPEG, PNG or WebP up to 3 MB" title="Attach photo · up to 3 MB" :disabled="busy || !status?.chat || !status?.photo" @click="picker?.click()"><Camera :size="20" /><span>Photo</span></button>
+              <button v-if="status?.photo" type="button" class="icon-button labeled-tool" aria-label="Attach a photo, JPEG, PNG or WebP up to 3 MB" title="Attach photo · up to 3 MB" :disabled="busy || !status?.chat || !status?.photo" @click="picker?.click()"><Camera :size="20" /><span>Photo</span></button>
+              <button v-else type="button" class="icon-button labeled-tool" aria-label="Scan a plant photo with Pl@ntNet" :disabled="busy || speaking" @click="changeWorkspace('scan')"><Camera :size="20" /><span>Photo</span></button>
               <button type="button" class="icon-button labeled-tool" :class="{ recording: listening }" :aria-label="dictationActive ? 'Stop dictation' : 'Start dictation'" :aria-pressed="dictationActive" aria-describedby="assistant-dictation-privacy" :disabled="!dictationSupported || (!dictationActive && (busy || speaking))" @click="dictationActive ? stopDictation() : startDictation()"><Mic :size="20" /><span>{{ dictationActive ? 'Stop dictation' : 'Dictate' }}</span></button>
               <template v-if="dictationSupported"><label for="assistant-dictation-language" class="sr-only">Dictation language</label><select id="assistant-dictation-language" v-model="dictationLanguage" :disabled="dictationActive || busy || speaking"><option v-for="language in dictationLanguages" :key="language.code" :value="language.code">{{ language.label }}</option></select></template>
               <span v-else class="typing-fallback">Type your question</span>
@@ -324,7 +414,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
         <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
-        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with Cloudflare Workers AI. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared with Cloudflare Workers AI only when you press Send.</p></div></details>
+        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with Cloudflare Workers AI. Your saved farm records are included only if you opt in above. FarmBuddy retrieves short, sourced agricultural guidance to support answers. This app does not train or retrain a model on your chats. External provider retention and training policies still apply, so avoid sensitive details. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation starts only when you press Dictate. With the Cloudflare AI connection, stopping sends up to 60 seconds of audio for Whisper transcription. Otherwise supported browsers use their speech service. Audio is not saved by FarmBuddy. Review the words, then press Send yourself. Language accuracy varies. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared with Cloudflare Workers AI only when you press Send.</p></div></details>
       </div>
     </div>
   </section>
@@ -423,10 +513,29 @@ button:focus-visible, select:focus-visible, summary:focus-visible, input:focus-v
 .photo-caption span { overflow-wrap: anywhere; flex: 1; }
 .photo-review label { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
 .photo-review input { margin-top: 2px; }
-/* The dashboard/document owns scrolling. Long replies expand naturally, never inside a second viewport. */
+/* History scrolls independently so writing never requires finding the page bottom. */
+.chat-workspace { height:calc(var(--chat-viewport-height, 100dvh) - 116px); min-height:0; }
+.chat-workspace .companion-bar { padding-block:10px; flex-shrink:0; }
+.chat-workspace .workspace-switch { padding-block:8px; flex-shrink:0; }
+.chat-workspace .workspace-switch button { padding-block:8px; }
+.chat-workspace .workspace-switch small { display:none; }
+.chat-workspace .companion-body { min-height:0; overflow:hidden; padding-top:0; }
+.chat-history { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.chat-history:focus-visible { outline:2px solid #638258; outline-offset:-2px; }
+.chat-workspace .welcome { padding:20px 0; }
+.chat-workspace .welcome-emblem,.chat-workspace .eyebrow,.chat-workspace .welcome-copy { display:none; }
+.chat-workspace .welcome h3 { font-size:clamp(23px,3vw,34px); }
+.chat-workspace .starter-prompts { margin-top:14px; }
+.chat-workspace .composer-area { flex-shrink:0; margin:0 auto; padding-top:8px; padding-bottom:env(safe-area-inset-bottom,0px); max-height:60%; overflow-y:auto; }
+.chat-workspace .composer textarea { resize:none; min-height:56px; height:56px; max-height:80px; }
+.chat-workspace .farm-context-control { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
+.chat-workspace .farm-context-control details { min-width:0; }
+.chat-workspace .guidance-details { padding-top:2px; }
+.chat-workspace .connection-details summary small,.chat-workspace .connection-action { display:none; }
+@media(max-width:640px) { .chat-workspace { height:calc(var(--chat-viewport-height, 100dvh) - 100px); } .chat-workspace .companion-bar { padding:8px 12px; } .chat-workspace .companion-body { padding:0 10px 8px; } .chat-workspace .workspace-switch button { min-height:52px; } .chat-workspace .composer { padding:6px 10px; } .chat-workspace .composer-heading { flex-wrap:nowrap; } .chat-workspace .composer-heading>span { display:none; } }
+.chat-workspace.keyboard-open .companion-bar,.chat-workspace.keyboard-open .workspace-switch,.chat-workspace.keyboard-open .farm-context-control,.chat-workspace.keyboard-open .guidance-details { display:none; }
+.chat-workspace.keyboard-open .composer-area { max-height:100%; }
 .conversation { flex: 1; width: 100%; max-width: 760px; min-width: 0; margin: 12px auto 20px; padding: 8px 0; list-style: none; }
-.thread-navigation { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; width:100%; max-width:760px; margin:12px auto 0; font-size:12px; }
-.thread-navigation a { display:inline-flex; align-items:center; min-height:44px; color:#066136; text-decoration:underline; text-underline-offset:4px; }
 #assistant-question, #farm-assistant-title { scroll-margin-block: 100px; }
 .farm-companion, .farm-companion * { box-sizing:border-box; }
 .farm-companion button { transition:background-color 160ms ease-out, border-color 160ms ease-out, transform 160ms ease-out; }
@@ -451,9 +560,12 @@ button, summary, .composer select { min-height:44px; }
 .send-button { min-width:92px; background:#066136; font-weight:700; }
 .farm-context-control label { min-height:44px; }
 .dictation-session.is-listening { border:2px solid #066136; }
+.mobile-tool-name{display:none}
 @media (max-width: 640px) {
-  .workspace-switch { grid-template-columns:repeat(2,minmax(0,1fr)); padding:12px; gap:6px; }
-  .workspace-switch button { flex-direction:column; align-items:flex-start; padding:12px 8px; gap:8px; font-size:12px; }
+  .workspace-switch { grid-template-columns:repeat(5,minmax(0,1fr)); padding:10px 8px; gap:4px; }
+  .workspace-switch button { flex-direction:column; align-items:center; justify-content:center; min-height:68px; padding:8px 2px; gap:5px; font-size:11px; }
+  .workspace-switch button>span:not(.mobile-tool-name) { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .workspace-switch .mobile-tool-name{display:block;font-weight:700;line-height:1.4}
   .workspace-switch small { display:none; }
   .connection-details summary { flex-wrap:wrap; }
   .connection-action { margin-left:27px; }

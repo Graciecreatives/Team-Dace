@@ -28,7 +28,7 @@ export async function assistantEnvironment(event) {
 export async function assistantStatus(event) {
   const env = await assistantEnvironment(event)
   const chat = typeof env?.AI?.run === 'function' && validModel(assistantModel(env))
-  return { chat, photo: false, voice: present('YARNGPT_API_KEY') }
+  return { chat, photo: false, voice: present('YARNGPT_API_KEY'), transcription: typeof env?.AI?.run === 'function' }
 }
 function providerError(status, name) {
   if ([401, 403].includes(status)) fail(502, `${name} credentials were rejected. The site owner should check the server API key and provider access.`)
@@ -142,7 +142,9 @@ export async function assistantSpeak(input, fetcher = fetch) {
   try {
     const response = await fetcher('https://api.yarngpt.ai/api/v1/streaming/conversation', {
       method: 'POST', headers: { Authorization: `Bearer ${process.env.YARNGPT_API_KEY.trim()}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
-      signal: AbortSignal.timeout(45000), redirect: 'error',
+      // Workers supports manual redirects, not redirect:error. Reject all
+      // non-2xx below without forwarding the bearer key or text elsewhere.
+      signal: AbortSignal.timeout(45000), redirect: 'manual',
       body: JSON.stringify({ text: input.text.trim(), output_format: 'mp3', ...(process.env.YARNGPT_VOICE?.trim() ? { voice: process.env.YARNGPT_VOICE.trim() } : {}) })
     })
     if (!response.ok) providerError(response.status, 'YarnGPT')
