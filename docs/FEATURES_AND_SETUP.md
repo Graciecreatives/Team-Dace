@@ -4,8 +4,9 @@
 - Crop/herd registers with quantity, unit, start date, notes, editing, and confirmed deletion.
 - Inventory with editable quantities, low-stock thresholds, expiry indicators, and confirmed deletion.
 - Offline notes saved in account-scoped browser storage before upload. Reconnecting retries the queue with idempotent UUIDs. Notes are immutable after saving to avoid silent offline edits overwriting newer content. Copy to a new draft to revise.
-- Voice-to-record using browser dictation when supported, with an always-available typed/pasted transcript fallback. The farmer reviews the category, title, amount, and note before saving. No money is inferred from speech.
-- Expert referrals as private case summaries with farmer-entered contact details, status tracking, and copy/download. No verified professional directory, appointment booking, or automated sending is included.
+- Voice-to-record inside **FarmBuddyAI**, using browser dictation when supported, with an always-available typed/pasted transcript fallback. The farmer reviews the category, title, amount, and note before saving. No money is inferred from speech. Confirmed income/expenses also appear in Bookkeeping.
+- Bookkeeping shares the existing persistent farm records: income and expense entry, monthly/all-time totals, search/type filters, and filtered CSV export. Activities are excluded from financial totals. The cash balance is recorded income minus recorded expenses, not a full accounting profit calculation. Entry dates currently use their saved timestamp.
+- Expert referrals and standalone Voice records have been removed from dashboard navigation. Existing referral data is retained, not deleted.
 - Real Open-Meteo five-day weather with in-app heat/rain planning indicators, source attribution, and checked time. These are not official emergency warnings, push notifications, or background monitoring.
 - Real farmer discovery from opted-in FarmBuddy accounts, approximate area maps, connection requests, explicit acceptance before sharing contact details, and blocking. There are no fabricated farmers and no in-app farmer chat.
 - Configurable AI chat, photo-based plant/animal guidance, crop identification, and YarnGPT spoken answers. The UI reports whether providers are configured.
@@ -21,7 +22,7 @@ Visit localhost port 3000. Register, complete onboarding, and open a tool from t
 1. Copy `.env.example` to `.env` locally and fill in `OPENAI_API_KEY` and/or `YARNGPT_API_KEY` yourself. Do not paste keys into chat or client-side code.
 2. Optionally select `FARMBUDDY_AI_MODEL` and a current `YARNGPT_VOICE` ID from the provider catalogue. The default AI model is `gpt-4.1-mini`; it must be enabled for your provider account.
 3. Restart the dev server after changing environment variables. Production requires environment variables supplied to the running Node server, not just a local `.env` file.
-4. Open AI assistant & photos. Questions share selected farm profile fields and conversation context with OpenAI. Photos require explicit consent and are sent only with Send. We request `store: false`, but provider retention policies still apply.
+4. Open FarmBuddyAI. Questions share selected farm profile fields and conversation context with OpenAI. Photos require explicit consent and are sent only with Send. We request `store: false`, but provider retention policies still apply.
 5. Read aloud shares the answer text with YarnGPT and returns audio. Browser dictation is a separate browser service, not YarnGPT transcription. Language support varies by browser/service. No microphone is opened automatically, and speech is never sent as a question without review.
 
 Provider requests may incur charges. The app does not sign up, top up, purchase credits, or test live paid AI calls automatically. API keys remain server-side. Rate limits and bounded uploads are implemented, but production still needs account-level budgets, monitoring, and abuse controls.

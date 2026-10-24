@@ -1,5 +1,6 @@
 <script setup>
-import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, LogOut, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, Mic, LoaderCircle, Trash2, Bot, CloudSun, Users, Package, NotebookPen, Stethoscope } from 'lucide-vue-next'
+import FarmBookkeeping from './FarmBookkeeping.vue'
+import { Sprout, LayoutDashboard, ClipboardList, Bell, UserRound, LogOut, ArrowUpRight, Plus, Wallet, TrendingUp, TrendingDown, CalendarDays, Check, X, Menu, Leaf, ShieldCheck, Camera, LoaderCircle, Trash2, Bot, CloudSun, Users, Package, NotebookPen } from 'lucide-vue-next'
 
 useHead({ title: 'Your farm dashboard | FarmBuddy' })
 const { data: session, error: sessionError } = await useFetch('/api/auth/me')
@@ -39,18 +40,17 @@ const today = new Date().toLocaleDateString('en-CA')
 const nav = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'records', label: 'Farm records', icon: ClipboardList },
+  { id: 'bookkeeping', label: 'Bookkeeping', icon: Wallet },
   { id: 'reminders', label: 'Reminders', icon: Bell },
   { id: 'enterprises', label: 'Crop & herd register', icon: Sprout },
   { id: 'inventory', label: 'Inventory', icon: Package },
   { id: 'notes', label: 'Offline notes', icon: NotebookPen },
-  { id: 'voice', label: 'Voice records', icon: Mic },
-  { id: 'assistant', label: 'AI assistant & photos', icon: Bot },
+  { id: 'assistant', label: 'FarmBuddyAI', icon: Bot },
   { id: 'weather', label: 'Weather planning', icon: CloudSun },
   { id: 'community', label: 'Nearby farmers', icon: Users },
-  { id: 'referrals', label: 'Expert referrals', icon: Stethoscope },
   { id: 'profile', label: 'My farm', icon: UserRound },
 ]
-const titles = { overview: 'A good day to grow.', records: 'Every detail counts.', reminders: 'Stay one step ahead.', profile: 'Your farm, at a glance.', enterprises: 'Know what is growing.', inventory: 'Every supply accounted for.', notes: 'A note today. A clearer tomorrow.', voice: 'Say it. Review it. Save it.', assistant: 'Meet your farming companion.', weather: 'Plan around the weather.', community: 'Better farming, together.', referrals: 'Prepare for expert support.' }
+const titles = { overview: 'A good day to grow.', records: 'Every detail counts.', reminders: 'Stay one step ahead.', profile: 'Your farm, at a glance.', enterprises: 'Know what is growing.', inventory: 'Every supply accounted for.', notes: 'A note today. A clearer tomorrow.', bookkeeping: 'Your farm finances, clearly.', assistant: 'Meet your farming companion.', weather: 'Plan around the weather.', community: 'Better farming, together.' }
 const income = computed(() => records.value.filter(r => r.category === 'income').reduce((sum, r) => sum + Number(r.amount || 0), 0))
 const expenses = computed(() => records.value.filter(r => r.category === 'expense').reduce((sum, r) => sum + Number(r.amount || 0), 0))
 const pending = computed(() => reminders.value.filter(r => !r.completed).sort((a, b) => a.date.localeCompare(b.date)))
@@ -60,6 +60,7 @@ const displayDate = value => new Date(value.length === 10 ? `${value}T12:00:00` 
 const initials = computed(() => (user.value.name || 'Farmer').split(' ').filter(Boolean).slice(0, 2).map(n => n[0]).join('').toUpperCase())
 function chooseSection(id) { section.value = id; mobileMenu.value = false; feedback.value = ''; error.value = '' }
 function openDialog(type) { dialogTrigger = document.activeElement; dialog.value = type; error.value = ''; feedback.value = ''; nextTick(() => document.getElementById(type === 'record' ? 'record-title' : 'reminder-title')?.focus()) }
+function addBookkeepingEntry(category) { Object.assign(recordForm, { title: '', category: category === 'expense' ? 'expense' : 'income', amount: '', note: '' }); openDialog('record') }
 function closeDialog() { if (!saving.value) { dialog.value = null; error.value = '' } }
 function apiMessage(e) { return e?.data?.statusMessage || e?.data?.message || 'Something went wrong. Please try again.' }
 async function saveRecord() {
@@ -141,12 +142,13 @@ onUnmounted(() => { window.removeEventListener('keydown', onEscape); document.bo
           <section v-if="section !== 'records'" class="dash-panel" aria-labelledby="reminders-title"><div class="flex items-center justify-between gap-4 border-b border-[#EDF0E8] p-5 sm:p-6"><div><h2 id="reminders-title" class="font-bold">{{ section === 'overview' ? 'On your farm calendar' : 'Your reminders' }}</h2><p class="mt-1 text-xs text-[#8B9981]">{{ pending.length }} tasks to look forward to.</p></div><button type="button" aria-label="Add reminder" class="rounded-lg border border-[#DDE5D4] p-2 text-[#066136] hover:bg-[#EDF2E5]" @click="openDialog('reminder')"><Plus :size="16" /></button></div><div v-if="!(section === 'overview' ? pending : reminders).length" class="px-6 py-12 text-center"><Bell :size="28" class="mx-auto text-[#91AB7A]" /><h3 class="mt-4 text-sm font-bold">A little planning goes a long way.</h3><p class="mt-2 text-xs leading-6 text-[#8A9880]">{{ tailored.tasks }} They’ll stay here until you mark them done.</p><button type="button" class="mt-5 text-xs font-bold text-[#066136]" @click="openDialog('reminder')">Create a reminder</button></div><ul v-else class="divide-y divide-[#EDF0E8]"><li v-for="reminder in (section === 'overview' ? pending.slice(0, 5) : [...reminders].sort((a,b) => a.date.localeCompare(b.date)))" :key="reminder.id" class="flex items-start gap-3 p-5"><button type="button" :aria-label="`${reminder.completed ? 'Mark incomplete' : 'Complete'}: ${reminder.title}`" :aria-pressed="reminder.completed" :disabled="!!pendingReminder" class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border disabled:opacity-50" :class="reminder.completed ? 'border-[#066136] bg-[#066136] text-white' : 'border-[#C8D6BD] bg-white'" @click="toggleReminder(reminder)"><Check v-if="reminder.completed" :size="13" /></button><div><p class="break-words text-sm font-semibold" :class="reminder.completed ? 'text-[#A0AC95] line-through' : ''">{{ reminder.title }}</p><p class="mt-1.5 text-[10px]" :class="!reminder.completed && reminder.date < today ? 'font-semibold text-[#AE693A]' : 'text-[#96A18D]'">{{ displayDate(reminder.date) }}{{ !reminder.completed && reminder.date < today ? ' · Overdue' : '' }}</p></div></li></ul><p class="border-t border-[#EDF0E8] px-5 py-3 text-[10px] leading-5 text-[#96A18D]">Reminders appear in your dashboard. Email and push notifications are not enabled.</p></section>
         </div>
 
-        <FarmManagement v-if="['enterprises', 'inventory', 'referrals'].includes(section)" :key="section" :section="section" :user="user" />
-        <FarmNotes v-if="section === 'notes' || section === 'voice'" :key="section" :user="user" :mode="section" @records-changed="refreshFarm" />
-        <FarmAssistant v-if="section === 'assistant'" :user="user" />
+        <FarmBookkeeping v-if="section === 'bookkeeping'" :records="records" :deleting="deleting" @add-entry="addBookkeepingEntry" @delete-entry="deleteRecord" />
+        <FarmManagement v-if="['enterprises', 'inventory'].includes(section)" :key="section" :section="section" :user="user" />
+        <FarmNotes v-if="section === 'notes'" :user="user" mode="notes" />
+        <FarmAssistant v-if="section === 'assistant'" :user="user" @records-changed="refreshFarm" />
         <FarmLocationTools v-if="section === 'weather' || section === 'community'" :key="section" :user="user" :mode="section" />
         <section v-if="section === 'profile'" class="dash-panel max-w-3xl p-6 sm:p-8"><div class="flex items-center gap-4"><span class="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#E8EFD9] text-[#4C7C44]"><Sprout :size="34" /></span><div><h2 class="text-xl font-bold">{{ user.farmName || 'My farm' }}</h2><p class="mt-1 text-sm capitalize text-[#8B9981]">{{ farmTypeLabel }}</p></div></div><dl class="mt-8 grid gap-6 border-t border-[#E9EEDF] pt-6 sm:grid-cols-2"><div v-for="field in [{label:'Farmer',value:user.name},{label:'Email',value:user.email},{label:'Farm name',value:user.farmName || 'Not provided'},{label:'Farm type',value:farmTypeLabel},{label:'Location',value:user.location || 'Not provided'},{label:'Main enterprises',value:Array.isArray(user.mainEnterprises) ? user.mainEnterprises.join(', ') || 'Not provided' : user.mainEnterprises || 'Not provided'},{label:'Preferred language',value:user.preferredLanguage || 'Not provided'}]" :key="field.label"><dt class="text-xs text-[#8B9981]">{{ field.label }}</dt><dd class="mt-2 break-words text-sm font-semibold">{{ field.value }}</dd></div></dl><div class="mt-8 flex items-start gap-3 rounded-2xl bg-[#F1F5E9] p-4 text-xs leading-6 text-[#728668]"><ShieldCheck :size="20" class="mt-0.5 shrink-0" /><p>Your records and reminders belong to your account. Your farm passport and profile verification are not yet available.</p></div></section>
-        <section v-if="section === 'overview'" class="mt-6 rounded-2xl border border-[#D7E1CC] bg-[#F0F3E8] p-5"><h2 class="text-sm font-bold">Your farm toolkit is growing.</h2><p class="mt-2 text-xs leading-6 text-[#738266]">Keep crop and animal registers, track supplies, save offline notes, and prepare expert case summaries. Check weather or find opted-in farmers nearby. AI and YarnGPT features show their connection status before use.</p><div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><button v-for="tool in nav.filter(item => ['enterprises', 'assistant', 'weather', 'community'].includes(item.id))" :key="tool.id" class="flex items-center gap-2 rounded-xl border border-[#d9e3ce] bg-white px-4 py-3 text-left text-xs font-bold text-[#066136]" @click="chooseSection(tool.id)"><component :is="tool.icon" :size="18" />{{ tool.label }}<ArrowUpRight :size="14" class="ml-auto" /></button></div></section>
+        <section v-if="section === 'overview'" class="mt-6 rounded-2xl border border-[#D7E1CC] bg-[#F0F3E8] p-5"><h2 class="text-sm font-bold">Your farm toolkit is growing.</h2><p class="mt-2 text-xs leading-6 text-[#738266]">Keep crop and animal registers, track supplies, save offline notes, and manage income and expenses in Bookkeeping. Use FarmBuddyAI to ask questions or review voice-to-record entries. Check weather or find opted-in farmers nearby. AI and YarnGPT features show their connection status before use.</p><div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><button v-for="tool in nav.filter(item => ['bookkeeping', 'assistant', 'weather', 'community'].includes(item.id))" :key="tool.id" class="flex items-center gap-2 rounded-xl border border-[#d9e3ce] bg-white px-4 py-3 text-left text-xs font-bold text-[#066136]" @click="chooseSection(tool.id)"><component :is="tool.icon" :size="18" />{{ tool.label }}<ArrowUpRight :size="14" class="ml-auto" /></button></div></section>
         <p v-if="section !== 'assistant'" class="mt-8 text-center text-[10px] text-[#9AA68E]">FarmBuddy · A little support for every day on the farm.</p>
       </main>
     </div>

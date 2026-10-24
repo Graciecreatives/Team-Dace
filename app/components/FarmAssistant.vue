@@ -2,6 +2,13 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Sprout, Plus, Camera, Mic, ArrowUpRight, X, Leaf, Stethoscope, Volume2 } from 'lucide-vue-next'
 const props = defineProps({ user: { type: Object, required: true } })
+const emit = defineEmits(['records-changed'])
+const workspace = ref('chat')
+function changeWorkspace(value) {
+  releaseDictation()
+  clearAudio()
+  workspace.value = value
+}
 const status = ref(null)
 const messages = ref([])
 const question = ref('')
@@ -171,12 +178,17 @@ onBeforeUnmount(() => { disposed = true; clearSession() })
 <template>
   <section aria-labelledby="farm-assistant-title" class="farm-companion" :class="{ 'has-thread': messages.length }">
     <header class="companion-bar">
-      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">Farm assistant</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ status ? (status.chat ? 'AI companion · Available' : 'AI companion · Not configured') : 'Checking availability…' }}</p></div></div>
+      <div class="companion-brand"><span class="brand-icon"><Sprout :size="20" /></span><div><h2 id="farm-assistant-title">FarmBuddyAI</h2><p><span class="status-dot" :class="{ ready: status?.chat }" />{{ status ? (status.chat ? 'AI companion · Available' : 'AI companion · Not configured') : 'Checking availability…' }}</p></div></div>
       <span class="farm-type">{{ farmLabel }}</span>
-      <button type="button" class="new-conversation" @click="clearSession"><Plus :size="16" /> <span>New conversation</span></button>
+      <button v-if="workspace === 'chat'" type="button" class="new-conversation" @click="clearSession"><Plus :size="16" /> <span>New conversation</span></button>
     </header>
 
-    <div class="companion-body">
+    <nav class="workspace-switch" aria-label="FarmBuddyAI tools">
+      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'chat'" @click="changeWorkspace('chat')">Chat &amp; photos</button>
+      <button type="button" :disabled="busy || speaking" :aria-pressed="workspace === 'voice'" @click="changeWorkspace('voice')"><Mic :size="16" /> Voice to farm record</button>
+    </nav>
+    <div v-if="workspace === 'voice'" class="voice-workspace"><p class="voice-intro">Turn spoken farm updates into records. Review the transcript and confirm any income or expense before saving. Saved financial entries appear in Bookkeeping.</p><FarmNotes :user="user" mode="voice" @records-changed="emit('records-changed')" /></div>
+    <div v-show="workspace === 'chat'" class="companion-body">
       <p v-if="status && !status.chat" role="status" class="configuration-note">Chat and photo analysis are not configured. You can draft a question here. Ask your administrator to enable the provider.</p>
       <p v-else-if="status && !status.photo" class="configuration-note">Photo analysis is unavailable. You can still send a written question.</p>
 
@@ -192,7 +204,7 @@ onBeforeUnmount(() => { disposed = true; clearSession() })
 
       <ol v-else ref="thread" class="conversation" aria-label="Conversation" aria-live="polite" tabindex="0">
         <li v-for="(message, index) in messages" :key="index" class="message" :class="message.role">
-          <p class="message-author">{{ message.role === 'user' ? 'You' : `Farm assistant · ${message.model}` }}</p>
+          <p class="message-author">{{ message.role === 'user' ? 'You' : `FarmBuddyAI · ${message.model}` }}</p>
           <p class="message-content">{{ message.content }}</p>
           <p v-if="message.photo" class="message-note">Photo shared with this question.</p>
           <button v-if="message.role === 'assistant' && status?.voice" type="button" class="read-aloud" :disabled="speaking || busy || listening" @click="speak(message)"><Volume2 :size="15" />Read aloud with YarnGPT{{ message.content.length > 4000 ? ' (first 4,000 characters)' : '' }}</button>
@@ -219,7 +231,7 @@ onBeforeUnmount(() => { disposed = true; clearSession() })
         </form>
         <p v-if="dictationNotice" role="status" class="inline-notice">{{ dictationNotice }}</p>
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
-        <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking the AI assistant…' : 'Preparing YarnGPT voice audio…' }}</p>
+        <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
         <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenAI. Read aloud shares answer text with YarnGPT.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
       </div>
@@ -228,6 +240,7 @@ onBeforeUnmount(() => { disposed = true; clearSession() })
 </template>
 
 <style scoped>
+.workspace-switch{display:flex;flex-wrap:wrap;gap:8px;padding:12px 26px;border-bottom:1px solid #375c3510}.workspace-switch button{display:flex;align-items:center;gap:7px;padding:10px 14px;border:1px solid #d8e1cd;border-radius:10px;font-size:12px;background:#ffffff80}.workspace-switch button[aria-pressed=true]{background:#066136;color:#fff;border-color:#066136}.voice-workspace{padding:clamp(12px,3vw,28px);min-width:0}.voice-intro{max-width:800px;font-size:13px;line-height:1.8;margin-bottom:16px}.voice-workspace :deep(.farm-notes){max-width:none}
 .farm-companion {
   position: relative;
   isolation: isolate;

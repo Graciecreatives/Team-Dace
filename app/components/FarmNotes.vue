@@ -25,7 +25,7 @@ function resetUser() {
   generation++; controller?.abort(); stopListening(); busy.value = false; recordBusy.value = false
   notes.value = []; title.value = ''; body.value = ''; transcript.value = ''; error.value = ''; feedback.value = ''; reviewed.value = false
   Object.assign(record, transcriptDraft(''))
-  if (!mounted) return
+  if (!mounted || props.mode === 'voice') return
   const loaded = loadNotes(storage, owner.value)
   notes.value = loaded.notes; storageWarning.value = loaded.error
   if (owner.value) sync()
@@ -75,7 +75,7 @@ function startListening() {
   recognition.onresult = event => {
     if (token !== generation) return
     const text = Array.from(event.results).map(result => result[0].transcript).join(' ')
-    transcript.value = `${transcript.value} ${text}`.trim()
+    transcript.value = `${transcript.value} ${text}`.trim().slice(0, 2000)
   }
   recognition.onerror = () => { if (token === generation) { error.value = 'Browser dictation could not continue. Check microphone permission or type below.'; listening.value = false } }
   recognition.onend = () => { if (token === generation) listening.value = false }
@@ -95,7 +95,7 @@ async function saveRecord() {
   } catch { if (token === generation) error.value = 'Record save was not confirmed. Check farm records before retrying to avoid duplicates. Your draft is kept.' }
   finally { if (token === generation) recordBusy.value = false }
 }
-function connectionChanged() { online.value = navigator.onLine; if (online.value) sync() }
+function connectionChanged() { online.value = navigator.onLine; if (online.value && props.mode !== 'voice') sync() }
 onMounted(() => {
   mounted = true
   try { storage = window.localStorage } catch { storage = null }
@@ -110,8 +110,11 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
 <template>
   <section class="farm-notes" :aria-label="mode === 'voice' ? 'Voice to farm record' : 'Offline notes'">
     <h2>{{ mode === 'voice' ? 'Speak it. Review it. Save it.' : 'Your farm notebook' }}</h2>
+    <template v-if="mode !== 'voice'">
     <p class="notice"><strong>Device privacy:</strong> Notes are stored unencrypted in this browser for your account. Anyone using this device may access browser storage. Avoid sensitive information on shared devices. Signing out does not erase saved notes.</p>
     <p>Saved notes are accessible while this page remains open. Reopening offline is not guaranteed. {{ online ? 'Connected' : 'Offline' }}.</p>
+    </template>
+    <p v-if="mode === 'voice'" class="notice">Transcripts are drafts on this page, not saved audio. Review before saving. {{ online ? 'Connected. Confirmed records save to your account.' : 'Offline. Reconnect before saving a record.' }} Leaving this tool clears unsaved drafts.</p>
     <p v-if="storageWarning" role="alert" class="notice">{{ storageWarning }}</p>
     <p v-if="error" role="alert" class="notice">{{ error }}</p>
     <p role="status" aria-live="polite">{{ feedback }}</p>
