@@ -27,7 +27,7 @@ for (const [key, values] of Object.entries(data)) {
   data[key] = values.filter(value => !(key === 'users' && value.id === manifest.ownerId) && value.userId !== manifest.ownerId && value.ownerId !== manifest.ownerId)
 }
 const text = serializeSnapshot(data)
-const sql = `UPDATE app_state SET snapshot=CAST(X'${Buffer.from(text).toString('hex')}' AS TEXT), revision=revision+1 WHERE id=1 AND revision=${row.revision};\n`
+const sql = `UPDATE app_state SET snapshot=CAST(X'${Buffer.from(text).toString('hex')}' AS TEXT), revision=revision+1 WHERE id=1 AND revision=${row.revision} RETURNING revision;\n`
 if (Buffer.byteLength(sql) > 90000) throw new Error('Cleanup snapshot too large for this deliberately narrow operator tool')
 if (!args.includes('--apply')) {
   console.log(`Validated one disposable account and ${ownImages.length} disposable image(s). No writes. Add --apply to remove only this test data.`)
@@ -38,7 +38,7 @@ if (!args.includes('--apply')) {
   const file = `.data/smoke-cleanup-${stamp}.sql`
   await writeFile(file, sql, { mode: 0o600, flag: 'wx' })
   const result = JSON.parse(cli('d1', 'execute', 'farmbuddy-db', location, '--json', `--file=${file}`))
-  if (result[0]?.meta?.changes !== 1) throw new Error('Cleanup revision changed, refusing image deletion. Recheck current state.')
+  if (result[0]?.results?.[0]?.revision !== row.revision + 1) throw new Error('Cleanup revision changed, refusing image deletion. Recheck current state.')
   for (const image of ownImages) {
     if (!/^[a-f0-9]{32}\/[a-f0-9-]{36}\.jpg$/.test(image.key) || image.backend !== 'cloudflare') throw new Error('Unexpected test object metadata')
     cli('r2', 'object', 'delete', `farmbuddy-products/${image.key}`, location)
