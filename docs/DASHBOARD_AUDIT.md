@@ -44,4 +44,21 @@ Reviewed October 24, 2026. This distinguishes implemented workflows from feature
 
 ## Verification scope
 
-Focused tests execute actual Vue setup logic for loading, permissions, drafts, account switches, stale responses, busy guards and failures. Shared components compile and render with real Vue/Reka on the server. Existing HTTP tests cover connected stock, financial idempotency, permissions, auth and image privacy. Browser, full build and deployed acceptance results are recorded below once completed.
+Focused tests execute actual Vue setup logic for loading, permissions, drafts, account switches, stale responses, busy guards and failures. Shared components compile and render with real Vue/Reka on the server. Existing HTTP tests cover connected stock, financial idempotency, permissions, auth and image privacy. Browser, full build and deployed acceptance results are recorded below.
+
+### Completed local acceptance
+
+- Full isolated regression: 171 tests passed, plus the separate native Workers crypto test. HTTP suites reported 185 auth/storage checks, 38 weather/community checks and 37 marketplace checks.
+- Node production build and real process-restart integration passed. Cloudflare Worker build passed.
+- Browser used only a disposable local preview account: created 20 kg stock, created a task, completed/reopened it, recorded 2 kg input use and read back exactly 18 kg from the actual API.
+- Inventory dialog: labelled content, focus inside, Escape dismissal and return focus to Add supply passed. At a 320 px viewport its bounds stayed inside the viewport and the document had no horizontal overflow.
+- Task board columns stacked at 320 px without horizontal overflow. Sales tabs supported arrow-key focus and Enter activation, with only the active entry form mounted.
+- Live AI status and Worker secret names were checked without exposing credentials. No provider keys were present locally or remotely, so live AI/voice/weather provider success is not claimed.
+- Invalid-store messages in isolated corruption tests are expected injected failures, not evidence that live user data was changed or repaired.
+
+### Deployed acceptance
+
+- Published to the existing Cloudflare Worker, version `5ab035b5-dc0b-4f70-b9ae-be3d83d2595a`.
+- Live browser confirmed the Create task action, full-width operations workspace and inherited Plus Jakarta Sans typography. Existing demo data was not edited.
+- Live HTTPS smoke passed authentication, D1 harvest/stock/sale/bookkeeping replay, session persistence, CSRF and private/public R2 photo/custom-cover boundaries.
+- Exactly the disposable smoke account and its one photo were removed after verification. Other account data was preserved.
