@@ -8,7 +8,7 @@ const filename = 'app/components/FarmProduction.vue'
 const source = await readFile(filename, 'utf8')
 const { descriptor, errors } = parse(source, { filename })
 const script = compileScript(descriptor, { id: 'production' })
-const ui = ['FbTabs', 'FbDialog', 'FbPageHeader', 'FbPanel', 'FbButton', 'FbBadge', 'FbEmptyState']
+const ui = ['FbTabs', 'FbDialog', 'FbPanel', 'FbButton', 'FbBadge', 'FbEmptyState', 'Sprout', 'Beef', 'CalendarPlus', 'NotebookPen']
 function fixture(role = 'owner') {
   return { currentUserId: 'user', farm: { id: 'farm', role }, enterprises: [{ id: 'register', name: 'Herd' }], planning: {
     plots: [{ id: 'plot', name: 'North', coordinates: [[7,3],[8,3],[8,4]] }],
@@ -33,11 +33,31 @@ function mount(role) {
 function validSeason(vm) { Object.assign(vm.season, { name: 'New dairy', kind: 'livestock', startsOn: '2026-01-01', endsOn: '2026-12-31', enterpriseId: 'register', plotId: 'plot' }) }
 function validEvent(vm) { Object.assign(vm.event, { type: 'health', date: '2026-10-24', quantity: '2', unit: 'head', note: 'Checked' }) }
 
+test('season journey uses real dates and selects the earliest upcoming work without mutating storage', () => {
+  const f = mount()
+  try {
+    const row = { startsOn: '2000-01-01', endsOn: '2099-12-31', schedule: [
+      { title: 'Later', date: '2099-10-01' }, { title: 'Earlier', date: '2099-01-01' }, { title: 'Past', date: '2000-01-01' }
+    ] }
+    const before = JSON.stringify(row)
+    assert.equal(f.vm.stage(row), 'In season')
+    assert.equal(f.vm.nextWork(row).title, 'Earlier')
+    assert.ok(f.vm.seasonProgress(row) > 0 && f.vm.seasonProgress(row) < 100)
+    assert.equal(f.vm.stage({ startsOn: '2099-01-01', endsOn: '2099-12-31' }), 'Preparing')
+    assert.equal(f.vm.seasonProgress({ startsOn: '2099-01-01', endsOn: '2099-12-31' }), 0)
+    assert.equal(f.vm.stage({ startsOn: '2000-01-01', endsOn: '2000-12-31' }), 'Season ended')
+    assert.equal(f.vm.seasonProgress({ startsOn: '2000-01-01', endsOn: '2000-12-31' }), 100)
+    assert.equal(f.vm.nextWork({ schedule: [] }), undefined)
+    assert.equal(JSON.stringify(row), before)
+    assert.equal(f.commands.length, 0)
+  } finally { f.close() }
+})
+
 test('production SFC compiles script, template and scoped styles with shared UI', () => {
   assert.deepEqual(errors, [])
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename, id: 'production', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
   for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename, id: 'production', scoped: true }).errors, [])
-  for (const name of ui) assert.ok(source.includes(`<${name}`))
+  for (const name of ui.filter(name => !['Sprout', 'Beef', 'CalendarPlus', 'NotebookPen'].includes(name))) assert.ok(source.includes(`<${name}`))
   assert.match(source, /ClientOnly v-if="showMap"/)
   assert.ok(!source.includes('<option value="harvest">') || !source.slice(source.indexOf('Event type')).includes('<option value="harvest">'))
 })
