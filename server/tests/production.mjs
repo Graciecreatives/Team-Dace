@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
+import sharp from 'sharp'
 
 const directory = await mkdtemp(join(tmpdir(), 'farmbuddy-nitro-'))
 const reservation = createServer()
@@ -15,7 +16,7 @@ let child
 let logs = ''
 async function start() {
   child = spawn(process.execPath, ['.output/server/index.mjs'], {
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), FARMBUDDY_DATA_FILE: join(directory, 'store.json'), OPENAI_API_KEY: '', YARNGPT_API_KEY: '' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), FARMBUDDY_DATA_FILE: join(directory, 'store.json'), FARMBUDDY_UPLOAD_DIR: join(directory, 'uploads'), FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local', OPENROUTER_API_KEY: '', OPENAI_API_KEY: '', YARNGPT_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   child.stdout.on('data', data => { logs += data })
@@ -59,7 +60,15 @@ try {
   const team = await call('/api/farm-team', 'POST', { action: 'add', name: 'Restart field lead', role: 'Field lead', contact: 'Private roster contact', responsibilities: 'Check the irrigation', status: 'active' }, registered.cookie)
   const configuredStore = await call('/api/marketplace', 'POST', { action: 'configure', slug: 'restart-farm', name: 'Restart Farm', contact: 'Public farm ordering line', contactConsent: true, published: true }, registered.cookie)
   assert.equal(configuredStore.value.farm.slug, 'restart-farm')
-  const products = await call('/api/marketplace', 'POST', { action: 'saveProduct', name: 'Fresh eggs', description: 'Farm fresh eggs', price: 5000, quantity: 10, unit: 'tray', currency: 'NGN', published: true, imageUrl: '' }, registered.cookie)
+  const photoBytes = await sharp({ create: { width: 32, height: 24, channels: 3, background: '#066136' } }).png().toBuffer()
+  const upload = await fetch(base + '/api/product-images', { method: 'POST', headers: { Origin: `https://127.0.0.1:${port}`, Cookie: registered.cookie, 'Content-Type': 'image/png' }, body: photoBytes })
+  assert.equal(upload.status, 200, await upload.clone().text())
+  const photo = await upload.json()
+  assert.equal((await fetch(base + photo.imageUrl)).status, 404, 'Unattached photos remain private')
+  const products = await call('/api/marketplace', 'POST', { action: 'saveProduct', name: 'Fresh eggs', description: 'Farm fresh eggs', price: 5000, quantity: 10, unit: 'tray', currency: 'NGN', published: true, imageUrl: photo.imageUrl }, registered.cookie)
+  const publishedPhoto = await fetch(base + photo.imageUrl)
+  assert.equal(publishedPhoto.status, 200)
+  assert.equal((await sharp(Buffer.from(await publishedPhoto.arrayBuffer())).metadata()).format, 'jpeg')
   const publicStore = await call('/api/storefront/restart-farm')
   assert.equal(publicStore.value.products[0].name, 'Fresh eggs')
   assert.ok(!JSON.stringify(publicStore.value).includes('ownerId'))
@@ -86,6 +95,7 @@ try {
   assert.deepEqual((await call('/api/farm-team', 'GET', undefined, registered.cookie)).value, team.value)
   assert.deepEqual((await call('/api/marketplace', 'GET', undefined, registered.cookie)).value, products.value)
   assert.deepEqual((await call('/api/storefront/restart-farm')).value, publicStore.value)
+  assert.equal((await fetch(base + photo.imageUrl)).status, 200, 'Uploaded image survives server restart')
   await call('/api/auth/logout', 'POST', undefined, registered.cookie)
   assert.equal((await fetch(base + '/api/auth/me', { headers: { Cookie: registered.cookie } })).status, 401)
   console.log('PASS: built Nitro auth/tools/AI/community/marketplace/team routes, private/public boundaries, session and data persistence across restart, logout (no live paid provider calls)')

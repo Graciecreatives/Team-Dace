@@ -6,6 +6,8 @@ const slug = computed(() => String(route.params.farmSlug || ''))
 const { data, error, status, refresh } = await useFetch(() => `/api/storefront/${encodeURIComponent(slug.value)}`, { watch: [slug] })
 useHead(() => ({ title: data.value?.farm?.name ? `${data.value.farm.name} | Farm products` : 'Farm storefront', meta: [{ name: 'referrer', content: 'no-referrer' }] }))
 const imagesEnabled = ref(false)
+const isUploadedPhoto = value => /^\/api\/product-images\/[a-f0-9-]{36}$/.test(value || '')
+const hasExternalImages = computed(() => data.value?.products?.some(product => product.imageUrl && !isUploadedPhoto(product.imageUrl)))
 const quantities = reactive({})
 const basket = computed(() => enquiryBasket(data.value?.products || [], quantities))
 const orderText = computed(() => enquiryText(data.value?.farm || {}, basket.value))
@@ -33,9 +35,9 @@ if (import.meta.server && error.value) setResponseStatus(useRequestEvent(), erro
     <template v-else>
       <header><p class="eyebrow">DIRECT FROM THE FARM</p><h1>{{ data.farm.name }}</h1><p>Explore the harvest. Contact the farm to confirm availability, delivery and payment arrangements.</p></header>
       <aside class="contact"><h2>Order directly from this farm</h2><p v-if="data.farm.contact" class="contact-text">{{ data.farm.contact }}</p><p v-else>This farm has not shared public ordering contact details yet.</p><p>This is a catalog only. FarmBuddy does not process payments, confirm orders or reserve stock. Verify seller details before paying.</p></aside>
-      <label v-if="data.products.some(product => product.imageUrl)" class="image-choice"><input v-model="imagesEnabled" type="checkbox"> Load product images from external hosts (shares your IP with those hosts)</label>
+      <label v-if="hasExternalImages" class="image-choice"><input v-model="imagesEnabled" type="checkbox"> Load product images from external hosts (shares your IP with those hosts)</label>
       <p v-if="!data.products.length" class="empty">No public products are available right now. Please check back.</p>
-      <div class="products"><article v-for="product in data.products" :key="product.id"><img v-if="imagesEnabled && product.imageUrl" :src="product.imageUrl" :alt="product.name" loading="lazy" referrerpolicy="no-referrer" @error="$event.target.style.display = 'none'"><div class="product-body"><p class="availability">{{ product.quantity > 0 ? `${product.quantity} ${product.unit} available` : 'Currently out of stock' }}</p><h2>{{ product.name }}</h2><p class="price">{{ product.currency }} {{ product.price.toFixed(2) }} <span>/ {{ product.unit }}</span></p><p class="description">{{ product.description }}</p><button type="button" :disabled="product.quantity <= 0" @click="add(product)">{{ product.quantity > 0 ? 'Add to enquiry' : 'Out of stock' }}</button></div></article></div>
+      <div class="products"><article v-for="product in data.products" :key="product.id"><img v-if="product.imageUrl && (isUploadedPhoto(product.imageUrl) || imagesEnabled)" :src="product.imageUrl" :alt="product.name" loading="lazy" referrerpolicy="no-referrer" @error="$event.target.style.display = 'none'"><div class="product-body"><p class="availability">{{ product.quantity > 0 ? `${product.quantity} ${product.unit} available` : 'Currently out of stock' }}</p><h2>{{ product.name }}</h2><p class="price">{{ product.currency }} {{ product.price.toFixed(2) }} <span>/ {{ product.unit }}</span></p><p class="description">{{ product.description }}</p><button type="button" :disabled="product.quantity <= 0" @click="add(product)">{{ product.quantity > 0 ? 'Add to enquiry' : 'Out of stock' }}</button></div></article></div>
       <section v-if="hasItems" class="basket" aria-labelledby="basket-title">
         <h2 id="basket-title">Your enquiry basket</h2>
         <p>Choose quantities, then copy the summary and send it to the farm contact above. Stock is not reserved and prices need confirmation.</p>

@@ -11,6 +11,11 @@ const online = ref(false)
 const busy = ref(false)
 const recordBusy = ref(false)
 const listening = ref(false)
+const microphonePending = ref(false)
+const elapsedSeconds = ref(0)
+let listeningTimer
+const elapsedLabel = computed(() => `${Math.floor(elapsedSeconds.value / 60).toString().padStart(2, '0')}:${(elapsedSeconds.value % 60).toString().padStart(2, '0')}`)
+function endIndicator() { clearInterval(listeningTimer); listeningTimer = undefined; listening.value = false; microphonePending.value = false }
 const supported = ref(false)
 const error = ref('')
 const storageWarning = ref('')
@@ -20,7 +25,7 @@ const record = reactive(transcriptDraft(''))
 let storage, recognition, mounted = false, generation = 0, controller
 const owner = computed(() => props.user?.id ? String(props.user.id) : '')
 function persist() { storageWarning.value = persistNotes(storage, owner.value, notes.value) }
-function stopListening() { if (recognition) { recognition.onresult = null; recognition.onend = null; recognition.onerror = null; recognition.abort(); recognition = null } listening.value = false }
+function stopListening() { if (recognition) { recognition.onstart = null; recognition.onresult = null; recognition.onend = null; recognition.onerror = null; recognition.abort(); recognition = null } endIndicator() }
 function resetUser() {
   generation++; controller?.abort(); stopListening(); busy.value = false; recordBusy.value = false
   notes.value = []; title.value = ''; body.value = ''; transcript.value = ''; error.value = ''; feedback.value = ''; reviewed.value = false
@@ -77,9 +82,15 @@ function startListening() {
     const text = Array.from(event.results).map(result => result[0].transcript).join(' ')
     transcript.value = `${transcript.value} ${text}`.trim().slice(0, 2000)
   }
-  recognition.onerror = () => { if (token === generation) { error.value = 'Browser dictation could not continue. Check microphone permission or type below.'; listening.value = false } }
-  recognition.onend = () => { if (token === generation) listening.value = false }
-  try { recognition.start(); listening.value = true } catch { error.value = 'Could not start dictation. You can always type below.' }
+  recognition.onstart = () => {
+    if (token !== generation) return
+    microphonePending.value = false; listening.value = true; elapsedSeconds.value = 0
+    const started = Date.now()
+    listeningTimer = setInterval(() => { elapsedSeconds.value = Math.floor((Date.now() - started) / 1000) }, 250)
+  }
+  recognition.onerror = () => { if (token === generation) { error.value = 'Browser dictation could not continue. Check microphone permission or type below.'; endIndicator() } }
+  recognition.onend = () => { if (token === generation) endIndicator() }
+  try { microphonePending.value = true; recognition.start() } catch { endIndicator(); error.value = 'Could not start dictation. You can always type below.' }
 }
 function prepareRecord() { Object.assign(record, transcriptDraft(transcript.value)); reviewed.value = false; feedback.value = 'Draft prepared. Choose a category and review every field before confirming.' }
 watch(record, () => { reviewed.value = false }, { flush: 'sync' })
@@ -120,10 +131,17 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
     <p role="status" aria-live="polite">{{ feedback }}</p>
     <template v-if="mode === 'voice'">
       <p>Browser dictation uses your browser's speech service, not YarnGPT. Your browser may send audio to its provider and may need internet. YarnGPT voice AI is a separate assistant feature.</p>
-      <label>Dictation language<select v-model="language" :disabled="listening"><option value="en-NG">English (Nigeria)</option><option value="en-GB">English (UK)</option><option value="yo-NG">Yorùbá</option><option value="ha-NG">Hausa</option><option value="ig-NG">Igbo</option></select></label>
+      <label>Dictation language<select v-model="language" :disabled="listening || microphonePending"><option value="en-NG">English (Nigeria)</option><option value="en-GB">English (UK)</option><option value="yo-NG">Yorùbá</option><option value="ha-NG">Hausa</option><option value="ig-NG">Igbo</option></select></label>
       <p v-if="!supported">Browser dictation is unavailable. Type or paste your transcript below.</p>
-      <button v-if="supported" type="button" :disabled="!owner" @click="listening ? stopListening() : startListening()">{{ listening ? 'Stop dictation' : 'Enable microphone and start browser dictation' }}</button>
-      <p role="status">{{ listening ? 'Listening. Speak now.' : '' }}</p>
+      <button v-if="supported" type="button" :disabled="!owner" @click="listening || microphonePending ? stopListening() : startListening()">{{ listening ? 'Stop dictation' : microphonePending ? 'Cancel microphone request' : 'Enable microphone and start browser dictation' }}</button>
+      <p v-if="microphonePending" role="status">Waiting for microphone permission. Dictation has not started.</p>
+      <div v-if="listening" class="listening-panel">
+        <span class="listening-dot" aria-hidden="true" />
+        <div><strong role="status">Listening. Speak now.</strong><p>Your words will appear in the transcript below.</p></div>
+        <span class="voice-bars" aria-hidden="true"><i v-for="bar in 5" :key="bar" :style="{ animationDelay: `${bar * 110}ms` }" /></span>
+        <time aria-label="Elapsed dictation time">{{ elapsedLabel }}</time>
+        <button type="button" @click="stopListening">Stop</button>
+      </div>
       <label>Transcript (editable)<textarea v-model="transcript" maxlength="2000" rows="4" /></label>
       <button type="button" :disabled="!transcript.trim()" @click="prepareRecord">Prepare record draft</button>
       <form :aria-busy="recordBusy" @submit.prevent="saveRecord">
@@ -151,5 +169,6 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
 </template>
 
 <style scoped>
+.listening-panel{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:16px 0;padding:16px;border:1px solid #a4c8ad;border-radius:14px;background:#edf7ee}.listening-panel p{font-size:12px;margin:3px 0}.listening-panel time{font-variant-numeric:tabular-nums;font-weight:700}.listening-dot{width:10px;height:10px;background:#066136;border-radius:50%;animation:record-pulse 1.2s ease-in-out infinite}.voice-bars{display:flex;align-items:center;gap:3px;height:30px;margin-left:auto}.voice-bars i{display:block;width:4px;height:24px;border-radius:4px;background:#066136;animation:voice-wave .8s ease-in-out infinite alternate}@keyframes voice-wave{from{transform:scaleY(.25)}to{transform:scaleY(1)}}@keyframes record-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.listening-dot,.voice-bars i{animation:none}}
 .farm-notes{background:#fff;border:1px solid #dce5da;border-radius:20px;padding:clamp(16px,4vw,32px);color:#213b27;max-width:900px}.farm-notes h2{font-size:1.5rem;font-weight:700}.farm-notes h3{font-weight:700;margin-top:12px}.farm-notes p{margin:10px 0;line-height:1.6}.notice{padding:12px;border-radius:10px;background:#fff5d7}.farm-notes form{display:grid;gap:14px;margin:20px 0}.farm-notes label{display:grid;gap:6px;font-weight:600;margin:10px 0}.farm-notes input:not([type=checkbox]),.farm-notes textarea,.farm-notes select{width:100%;min-width:0;border:1px solid #91a58e;border-radius:9px;padding:10px;background:white;color:#213b27}.farm-notes button{border-radius:9px;background:#285c34;color:white;padding:11px 16px;font-weight:600;min-height:44px;white-space:normal}.farm-notes button:disabled{opacity:.5;cursor:not-allowed}.farm-notes :focus-visible{outline:3px solid #c18420;outline-offset:3px}.farm-notes .check{display:flex;align-items:center;gap:10px}.notes-list{display:grid;gap:16px;margin-top:20px}.notes-list li{border:1px solid #dce5da;padding:16px;border-radius:12px;overflow-wrap:anywhere}.note-body{white-space:pre-wrap}@media(max-width:480px){.notes-list button{width:100%;margin-top:8px}}
 </style>

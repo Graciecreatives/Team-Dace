@@ -10,12 +10,16 @@
     "preview": "nuxt preview",
     "test": "node server/tests/integration.mjs && node server/tests/location.mjs && node --test app/tests/*.test.mjs tests/*.test.js",
     "test:production": "node server/tests/production.mjs",
+    "database": "node scripts/supabase-database.mjs",
+    "test:database": "node --test server/tests/database-postgres.mjs",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
     "@nuxtjs/tailwindcss": "^6.14.0",
     "leaflet": "^1.9.4",
     "lucide-vue-next": "^1.0.0",
-    "nuxt": "^4.0.3"
+    "nuxt": "^4.0.3",
+    "postgres": "^3.4.9",
+    "sharp": "^0.35.5"
   }
 }

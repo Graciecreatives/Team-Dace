@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createError } from 'h3'
+import { imageId, imageRows } from './product-images.js'
 const fail = (statusCode, statusMessage) => { throw createError({ statusCode, statusMessage }) }
 const reserved = new Set(['api', 'admin', 'auth', 'login', 'logout', 'register', 'onboarding', 'dashboard', 'products', 'marketplace', 'storefront', 'settings', 'account', 'help', 'about', 'contact', 'public', 'assets', '_nuxt', 'www', 'team', 'farm'])
 function text(value, max, required = false) {
@@ -10,9 +11,14 @@ export function farmSlug(value) {
   if (typeof value !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) || value.length < 3 || value.length > 60 || reserved.has(value)) fail(400, 'Choose a unique lowercase farm slug, 3-60 letters, digits or hyphens, not a reserved page name')
   return value
 }
-export function safeImage(value = '') {
+export function safeImage(value = '', data, ownerId) {
   value = text(value, 1000)
   if (!value) return ''
+  const id = imageId(value)
+  if (id) {
+    if (!data || !ownerId || !imageRows(data).some(image => image.id === id && image.ownerId === ownerId)) fail(400, 'Choose a photo uploaded by your own farm account')
+    return value
+  }
   let url
   try { url = new URL(value) } catch { fail(400, 'Image must use a public HTTPS URL') }
   const host = url.hostname.toLowerCase()
@@ -54,7 +60,7 @@ export function mutateCatalog(data, ownerId, input) {
     if (typeof input.price !== 'number' || !Number.isFinite(input.price) || input.price <= 0 || input.price > 1e9 || Math.abs(input.price * 100 - Math.round(input.price * 100)) > 0.00001) fail(400, 'Price must be positive with at most two decimals')
     if (typeof input.quantity !== 'number' || !Number.isFinite(input.quantity) || input.quantity < 0 || input.quantity > 1e9) fail(400, 'Invalid quantity')
     if (typeof input.currency !== 'string' || !['NGN', 'USD', 'GBP', 'EUR', 'GHS', 'KES', 'ZAR'].includes(input.currency)) fail(400, 'Choose a supported currency')
-    const fields = { name: text(input.name, 120, true), description: text(input.description ?? '', 2000), price: input.price, quantity: input.quantity, currency: input.currency, unit: text(input.unit, 40, true), imageUrl: safeImage(input.imageUrl), published: input.published }
+    const fields = { name: text(input.name, 120, true), description: text(input.description ?? '', 2000), price: input.price, quantity: input.quantity, currency: input.currency, unit: text(input.unit, 40, true), imageUrl: safeImage(input.imageUrl, data, ownerId), published: input.published }
     if (input.id !== undefined) {
       const product = data.marketplaceProducts.find(p => p.id === input.id && p.ownerId === ownerId)
       if (!product) fail(404, 'Product unavailable')
