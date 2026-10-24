@@ -53,6 +53,11 @@ test('cover visibility follows publication, replacement and independent publishe
   unavailable(() => visiblePhoto(data, first, 'other'))
   save({ published: true })
   assert.equal(visiblePhoto(data, first).id, first)
+  save({ published: true, showHero: false })
+  unavailable(() => visiblePhoto(data, first))
+  assert.equal(visiblePhoto(data, first, 'owner').id, first)
+  save({ published: true, showHero: true })
+  assert.equal(visiblePhoto(data, first).id, first)
   unavailable(() => visiblePhoto(data, second))
   unavailable(() => visiblePhoto(data, foreign))
   // A foreign farm referencing this asset cannot authorize it.
@@ -65,6 +70,9 @@ test('cover visibility follows publication, replacement and independent publishe
   const product = { action: 'saveProduct', name: 'Tomatoes', description: '', price: 10, quantity: 1, unit: 'kg', currency: 'NGN', imageUrl: imageUrl(first), published: true }
   const id = mutateCatalog(data, 'owner', product).products[0].id
   assert.equal(visiblePhoto(data, first).id, first)
+  save({ published: true, showHero: false })
+  assert.equal(visiblePhoto(data, first).id, first)
+  unavailable(() => visiblePhoto(data, second))
   save({ published: true, coverImageUrl: '' })
   unavailable(() => visiblePhoto(data, second))
   assert.equal(visiblePhoto(data, first).id, first)
