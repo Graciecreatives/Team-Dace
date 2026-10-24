@@ -23,6 +23,10 @@ test('appearance component compiles with labelled choices and explicit save prev
   assert.match(source, /maxlength="160"/)
   assert.match(source, /type="radio" name="store-theme"/)
   assert.match(source, /Preview only/)
+  assert.match(source, /farm is published and the welcome banner is enabled/)
+  assert.match(source, /No product attachment needed\./)
+  assert.doesNotMatch(source, /regardless of published products/)
+  assert.match(source, /<h4>\{\{ farm\.headline \|\| farm\.name \|\| 'Your farm' \}\}<\/h4><p v-if="farm.tagline">\{\{ farm\.tagline \}\}<\/p>/)
 })
 test('defaults reset for account loads and unsaved settings do not alter share link', async () => {
   const state = editor(async () => catalog)

@@ -34,7 +34,7 @@ async function uploadPhoto(event, target = 'product') {
     if (token !== generation || controller.signal.aborted) return
     if (target === 'cover') {
       farm.coverImageUrl = result.imageUrl
-      feedback.value = 'Cover uploaded and GPS metadata removed. Save storefront settings to attach it. It stays private until your farm is published, regardless of published products.'
+      feedback.value = 'Cover uploaded and GPS metadata removed. Save storefront settings to attach it. It becomes public only when your farm is published and the welcome banner is enabled. No product attachment needed.'
     } else {
       draft.imageUrl = result.imageUrl
       feedback.value = 'Photo uploaded and GPS metadata removed. Save the product to attach it. It stays private until the product and storefront are published.'
@@ -105,7 +105,7 @@ onUnmounted(() => { generation++; uploadController?.abort() })
             <input ref="coverCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" class="sr-only" aria-label="Take cover photo" @change="uploadPhoto($event, 'cover')">
             <div class="photo-actions"><button type="button" @click="coverPicker?.click()">Choose cover photo</button><button type="button" @click="coverCamera?.click()">Take a photo</button><button v-if="farm.coverImageUrl" type="button" @click="farm.coverImageUrl = ''">Clear cover</button></div>
             <p v-if="uploadingPhoto" role="status">Preparing and uploading photo. Keep this page open.</p>
-            <details><summary>Photo privacy &amp; file requirements</summary><p>JPEG, PNG or WebP, up to 20 MB and 40 megapixels. Your browser reduces photos to 1600 pixels. The server checks photos and removes location metadata. Covers stay private until your farm is published, regardless of published products. Save settings to attach or clear a cover. Clearing only detaches it, not deletes the stored upload.</p></details>
+            <details><summary>Photo privacy &amp; file requirements</summary><p>JPEG, PNG or WebP, up to 20 MB and 40 megapixels. Your browser reduces photos to 1600 pixels. The server checks photos and removes location metadata. Covers become public only when your farm is published and the welcome banner is enabled. No product attachment needed. A photo attached to a published product on a published storefront can also be public. Save settings to attach or clear a cover. Clearing only detaches it, not deletes the stored upload.</p></details>
           </div>
           <div class="store-preview" :style="{ '--preview-color': previewColor }" aria-label="Store appearance preview">
             <p class="preview-label">Preview</p>
