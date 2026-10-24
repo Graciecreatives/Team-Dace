@@ -72,7 +72,7 @@ Production uses **D1 and application-owned authentication**, not Supabase. The r
 
 ## Getting started
 
-Use a Node.js version supported by the locked Nuxt toolchain, with npm available. Node.js 22.12+ is a suitable baseline. A Cloudflare account is not required for basic local development.
+Use Node.js **22.19+ (22.x), 24.11+ (24.x), or 26+**, matching the locked Nuxt engine requirements, with npm available. A Cloudflare account is not required for basic local development.
 
 ```sh
 git clone https://github.com/Graciecreatives/Team-Dace.git
