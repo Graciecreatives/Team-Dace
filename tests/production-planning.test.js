@@ -8,6 +8,58 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { changeProduction, planningView } from '../server/utils/farm-production.js'
 import { emptyWorkspace } from '../server/utils/farm-workspace.js'
+import { readFileSync } from 'node:fs'
+import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import * as Vue from 'vue'
+
+test('production UI preserves failed drafts, resets only confirmed actions, and opts into map tiles', async () => {
+  const filename = 'app/components/FarmProduction.vue'
+  const source = readFileSync(filename, 'utf8')
+  const { descriptor } = parse(source, { filename })
+  const script = compileScript(descriptor, { id: 'production-test' })
+  const template = compileTemplate({ source: descriptor.template.content, filename, id: 'production-test', compilerOptions: { bindingMetadata: script.bindings } })
+  assert.deepEqual(template.errors, [])
+  const code = script.content.replace(/import \{([^}]+)\} from 'vue'/g, (_, names) => `const {${names}} = Vue`).replace('export default', 'return')
+  const component = new Function('Vue', code)(Vue)
+  const props = Vue.reactive({ busy: false, state: { farm: { id: 'farm', role: 'owner' }, planning: { plots: [], seasons: [], events: [] } } })
+  const emitted = []
+  const vm = component.setup(props, { expose() {}, emit: (...args) => emitted.push(args) })
+  assert.equal(vm.showMap.value, false)
+  assert.match(descriptor.template.content, /ClientOnly v-if="showMap"/)
+  vm.season.name = 'New herd'
+  vm.saveSeason()
+  assert.equal(emitted[0][1].action, 'season.create')
+  props.busy = true
+  await Vue.nextTick()
+  props.busy = false
+  await Vue.nextTick()
+  assert.equal(vm.season.name, 'New herd', 'busy completion without success must preserve draft')
+  props.state = { ...props.state, lastCommandId: 'confirmed', result: { action: 'season.create' } }
+  await Vue.nextTick()
+  assert.equal(vm.season.name, '')
+  for (const [action, draft, key] of [['plot.create', vm.plot, 'name'], ['schedule.create', vm.schedule, 'title'], ['event.create', vm.event, 'note']]) {
+    draft[key] = 'Submitted draft'
+    vm.send(action, {})
+    props.state = { ...props.state, lastCommandId: action, result: { action } }
+    await Vue.nextTick()
+    assert.equal(draft[key], '', `${action} clears after its confirmation`)
+  }
+  vm.event.note = 'Original'
+  vm.send('event.create', {})
+  vm.event.note = 'Newer unsent edit'
+  props.state = { ...props.state, lastCommandId: 'event-confirmed', result: { action: 'event.create' } }
+  await Vue.nextTick()
+  assert.equal(vm.event.note, 'Newer unsent edit')
+  vm.showMap.value = true
+  props.state = { ...props.state, farm: { id: 'another', role: 'owner' } }
+  await Vue.nextTick()
+  assert.equal(vm.showMap.value, false)
+  assert.equal(vm.event.note, '')
+  const map = readFileSync('app/components/FarmPlotMap.vue', 'utf8')
+  assert.match(map, /config.public.mapTileUrl/)
+  assert.match(map, /config.public.mapAttribution/)
+  assert.match(map, /safeTileUrl\(tileUrl\)/)
+})
 
 function fixture(role = 'owner') {
   const data = { enterprises: [{ id: 'herd', userId: 'owner' }, { id: 'foreign', userId: 'other' }], inventory: [{ quantity: 12 }], records: [] }
@@ -86,6 +138,8 @@ test('management HTTP uses real auth, persists planning, rejects cross-farm acce
     const saved = await post('/api/management', input, cookie)
     assert.equal(saved.status, 200)
     const snapshot = await saved.json()
+    assert.equal(snapshot.lastCommandId, input.commandId)
+    assert.equal(snapshot.result.action, 'season.create')
     const seasonId = snapshot.planning.seasons[0].id
     assert.equal((await post('/api/management', input, cookie)).status, 200)
     assert.equal((await post('/api/management', { ...input, name: 'Changed' }, cookie)).status, 409)

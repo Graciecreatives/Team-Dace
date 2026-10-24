@@ -9,19 +9,43 @@ const selected = ref('')
 const filter = ref('')
 const error = ref('')
 const notice = ref('')
+const showMap = ref(false)
 const plot = reactive({ name: '', coordinates: '', areaHa: '' })
 const season = reactive({ name: '', kind: 'crops', enterpriseId: '', plotId: '', startsOn: '', endsOn: '' })
 const schedule = reactive({ title: '', date: '' })
 const event = reactive({ type: 'observation', date: '', quantity: '', unit: '', note: '' })
+const defaults = {
+  'plot.create': { name: '', coordinates: '', areaHa: '' },
+  'season.create': { name: '', kind: 'crops', enterpriseId: '', plotId: '', startsOn: '', endsOn: '' },
+  'schedule.create': { title: '', date: '' },
+  'event.create': { type: 'observation', date: '', quantity: '', unit: '', note: '' }
+}
+const drafts = { 'plot.create': plot, 'season.create': season, 'schedule.create': schedule, 'event.create': event }
+const pendingDrafts = new Map()
 const active = computed(() => planning.value.seasons.find(row => row.id === selected.value))
 const history = computed(() => planning.value.events.filter(row => row.seasonId === selected.value && (!filter.value || row.type === filter.value)).slice().sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || '')))
 const agenda = computed(() => (active.value?.schedule || []).slice().sort((a, b) => a.date.localeCompare(b.date)))
 const types = ['health', 'breeding', 'feeding', 'production', 'observation', 'planting']
-watch(() => props.state.farm?.id, () => { selected.value = ''; filter.value = ''; error.value = ''; notice.value = '' })
+watch(() => props.state.farm?.id, () => {
+  selected.value = ''; filter.value = ''; error.value = ''; notice.value = ''; showMap.value = false
+  pendingDrafts.clear()
+  for (const action of Object.keys(drafts)) Object.assign(drafts[action], defaults[action])
+})
+watch(() => props.state.lastCommandId, (id, previous) => {
+  if (!id || id === previous) return
+  const action = props.state.result?.action
+  const draft = drafts[action]
+  if (!draft || !pendingDrafts.has(action)) return
+  // A retry or queued confirmation must not erase edits made since submission.
+  if (pendingDrafts.get(action) === JSON.stringify(draft)) Object.assign(draft, defaults[action])
+  pendingDrafts.delete(action)
+  error.value = ''; notice.value = 'Saved to your farm.'
+})
 watch(() => planning.value.seasons, rows => { if (!rows.some(row => row.id === selected.value)) selected.value = rows[0]?.id || '' }, { immediate: true })
 function send(action, fields) {
   if (props.busy) return
   error.value = ''; notice.value = 'Draft retained. Saved entries appear below after the command succeeds.'
+  pendingDrafts.set(action, JSON.stringify(drafts[action]))
   emit('command', { action, ...fields })
 }
 function savePlot() {
@@ -43,7 +67,7 @@ function saveEvent() { send('event.create', { ...event, seasonId: selected.value
   <section class="production">
     <header><p class="eyebrow">CONNECTED PRODUCTION</p><h2>Plan the season. Keep the history.</h2><p>Map plots, schedule farm work, and keep crop or animal-group observations together.</p></header>
     <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="notice" role="status" class="notice">{{ notice }}</p>
-    <div class="card"><h3>Plot boundaries</h3><ClientOnly><FarmPlotMap :plots="planning.plots" /><template #fallback><p>Loading plot map…</p></template></ClientOnly>
+    <div class="card"><h3>Plot boundaries</h3><p>The interactive map is optional. Opening it contacts the configured map provider and shares your IP address and viewed map area. Saved coordinates are available below without loading map tiles.</p><button type="button" :aria-expanded="showMap" @click="showMap = !showMap">{{ showMap ? 'Close map' : 'Load interactive map' }}</button><ClientOnly v-if="showMap"><FarmPlotMap :plots="planning.plots" /><template #fallback><p>Loading plot map…</p></template></ClientOnly>
       <p v-if="!planning.plots.length">No plots yet. Add boundary coordinates to start your farm map.</p>
       <details v-for="row in planning.plots" :key="row.id"><summary>{{ row.name }} <span v-if="row.areaHa"> · {{ row.areaHa }} ha (entered)</span></summary><ol><li v-for="(point, index) in row.coordinates" :key="index">{{ point.join(', ') }}</li></ol></details>
       <form v-if="canPlan" @submit.prevent="savePlot"><fieldset :disabled="busy"><legend>Add a plot</legend><label>Plot name<input v-model="plot.name" required maxlength="150" /></label><label>Boundary coordinates<textarea v-model="plot.coordinates" required rows="4" placeholder="7.410, 3.910&#10;7.415, 3.910&#10;7.415, 3.915" /></label><small>Latitude, longitude per line, following the boundary in order. 3 to 100 points.</small><label>Area in hectares (optional, not calculated)<input v-model="plot.areaHa" type="number" min="0.000001" max="1000000000" step="any" /></label><button>Add plot</button></fieldset></form>
