@@ -5,5 +5,5 @@ import { assistantPrivate, assistantStatus } from '../../utils/assistant.js'
 export default defineEventHandler(async event => {
   assistantPrivate(event)
   await store(data => authenticated(data, event))
-  return assistantStatus()
+  return assistantStatus(event)
 })

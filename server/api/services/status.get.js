@@ -6,7 +6,7 @@ import { assistantPrivate, assistantStatus } from '../../utils/assistant.js'
 export default defineEventHandler(async event => {
   assistantPrivate(event)
   await store(data => authenticated(data, event))
-  const ai = assistantStatus()
+  const ai = await assistantStatus(event)
   return {
     configurationOnly: true,
     services: {

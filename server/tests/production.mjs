@@ -17,7 +17,7 @@ let child
 let logs = ''
 async function start() {
   child = spawn(process.execPath, ['.output/server/index.mjs'], {
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), FARMBUDDY_DATA_FILE: join(directory, 'store.json'), FARMBUDDY_UPLOAD_DIR: join(directory, 'uploads'), FARMBUDDY_AUTH: 'local', FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local', OPENROUTER_API_KEY: '', OPENAI_API_KEY: '', PLANTNET_API_KEY: '', ROBOFLOW_API_KEY: '', FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN: 'false', YARNGPT_API_KEY: '' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), FARMBUDDY_DATA_FILE: join(directory, 'store.json'), FARMBUDDY_UPLOAD_DIR: join(directory, 'uploads'), FARMBUDDY_AUTH: 'local', FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local', OPENAI_API_KEY: '', PLANTNET_API_KEY: '', ROBOFLOW_API_KEY: '', FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN: 'false', YARNGPT_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   child.stdout.on('data', data => { logs += data })

@@ -4,7 +4,7 @@ Implementation decision, October 24, 2026.
 
 ## Narrow supported task
 
-The animal scanner is an optional **experimental cattle photo-pattern screen**, separate from OpenRouter and Pl@ntNet. It is not a universal animal disease classifier, an animal species identifier, a veterinary diagnosis, or evidence that an animal is healthy.
+The animal scanner is an optional **experimental cattle photo-pattern screen**, separate from Workers AI and Pl@ntNet. It is not a universal animal disease classifier, an animal species identifier, a veterinary diagnosis, or evidence that an animal is healthy.
 
 The fixed research model is Roboflow Universe `cattle-disease-detection/1`. Public project metadata describes a small dataset of 51 images and a CC BY 4.0 dataset licence. This is not independent clinical validation. The application therefore exposes only experimental visual regions, not a pathogen diagnosis, treatment, farm outbreak claim or diagnostic probability. Dataset licensing does not establish model reliability or automatically grant every provider entitlement.
 

@@ -18,7 +18,7 @@ Reviewed October 24, 2026. This distinguishes implemented workflows from feature
 | Marketplace | Product photos, publishing, public farm link and store customization | Real R2 photo uploads and public storefront. Buyers build enquiries and contact farmer. No checkout, payment collection or automatic shipping booking. Storefront quantities are not silently linked to unrelated inventory items. |
 | My team | Email-bound invitations, actual member roles, join/revoke access | Owner controls access. Manager, worker and viewer permissions checked on server. Invitation token must be shared privately. No invitation email is sent. Legacy contact roster alone grants no access. |
 | Offline notes | Private device drafts with explicit sync | Opt-in and account scoped. Not a fully offline installable app. Workspace also supports selected field commands, with stable replay IDs. |
-| FarmBuddyAI | Text advice, eligible photo guidance, browser dictation and spoken replies | **Live status on October 24: chat=false, photo=false, voice=false.** Worker secret list is empty. Requires OpenRouter/YarnGPT configuration, not a UI redesign. No chats or images sent to a paid provider during this audit. |
+| FarmBuddyAI | Native Workers AI text advice, specialist scanners, browser dictation and optional YarnGPT speech | Chat uses the private Cloudflare `AI` binding, not a chat API key. General vision input is not enabled for the text model. Pl@ntNet is separately configured through a private Worker secret. Readiness checks do not perform inference. |
 | Farm Watch | Location-based forecast planning and sourced plant/animal health bulletins | Forecast needs OPENWEATHER_API_KEY. Location and external requests require consent. Bulletins are sourced information, not verified nearby disease cases or emergency diagnosis. No background notification delivery. |
 | Nearby farmers | Opt-in approximate location, nearby search, connection requests, contact privacy and map | Real account-backed network, not seeded fake farmers. Map tiles require opt-in. Empty results can mean nobody nearby has opted in. Contact details are not public before permitted connection. |
 | My farm | Current farmer/farm profile | Read-only summary. Edit through Settings. No independently verified bank-ready farm passport. |
@@ -35,9 +35,9 @@ Reviewed October 24, 2026. This distinguishes implemented workflows from feature
 
 ## What still needs configuration or further development
 
-1. Set private Worker secrets for OPENROUTER_API_KEY, YARNGPT_API_KEY and OPENWEATHER_API_KEY through the existing secret tooling. Optional model/voice settings are documented in .env.example. Never put these in public Nuxt variables or commit .env.
+1. Bind Workers AI as `AI` in Wrangler. Optional private keys for Pl@ntNet, YarnGPT and OpenWeather use the existing secret tooling. Model/voice settings are documented in .env.example. Never put secrets in public Nuxt variables or commit .env.
 2. Text-to-speech and browser speech recognition are different: YarnGPT speaks replies; browser dictation support depends on browser, permissions and language support.
-3. Custom OpenRouter models remain text-only unless their image capability is explicitly supported. Photo guidance is not a veterinary/agronomic diagnosis.
+3. The native Qwen model is text-only. Supported photo tasks use the separate specialist scanners and do not establish veterinary/agronomic diagnoses.
 4. Payments, full accounting, automatic courier dispatch, email/SMS/push notifications and a verified farm passport are not implemented.
 5. The D1 snapshot store has a documented size/concurrency boundary. A normalized data model and pagination are future scale work, not claimed here.
 6. Existing dependency audit reports 21 vulnerabilities. No breaking force-upgrade was applied as part of a UI change.

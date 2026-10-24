@@ -79,21 +79,15 @@ test('assistant dictation separates permission from capture and cleans up timers
 })
 
 test('assistant validation and mocked primary provider boundaries, no live calls', async t => {
-  const keys = ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'FARMBUDDY_AI_MODEL', 'YARNGPT_API_KEY', 'YARNGPT_VOICE']
+  const keys = ['FARMBUDDY_AI_MODEL', 'YARNGPT_API_KEY', 'YARNGPT_VOICE']
   const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
   t.after(() => { for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key] } })
-  process.env.OPENAI_API_KEY = 'legacy-key-must-not-be-used'
-  delete process.env.OPENROUTER_MODEL
   delete process.env.FARMBUDDY_AI_MODEL
-  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
-  assert.deepEqual(assistantStatus(), { chat: false, photo: false, voice: false })
-  process.env.OPENROUTER_API_KEY = '   '
+  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false })
   process.env.YARNGPT_API_KEY = '   '
-  assert.deepEqual(assistantStatus(), { chat: false, photo: false, voice: false })
-  delete process.env.OPENROUTER_MODEL
+  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false })
   delete process.env.FARMBUDDY_AI_MODEL
-  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
   await assert.rejects(assistantChat(input, {}), errorStatus(503))
   await assert.rejects(assistantSpeak({ text: 'Hello' }), errorStatus(503))
@@ -107,54 +101,67 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   assert.equal(imageRequest.messages[0].content[1].type, 'image_url')
   assert.throws(() => validateChat({ ...input, task: 'unknown' }), errorStatus(400))
   delete process.env.FARMBUDDY_AI_MODEL
-  process.env.OPENROUTER_API_KEY = 'test-secret-never-live'
   let request
-  const result = await assistantChat(input, { farmType: 'crop', email: 'private@example.com' }, async (url, options) => {
-    request = { url, options, body: JSON.parse(options.body) }
-    return Response.json({ choices: [{ message: { content: 'Inspect leaves and ask your extension officer.' } }] })
+  const native = run => ({ AI: { run } })
+  const reply = content => ({ choices: [{ message: { content } }] })
+  const env = native(async (model, options) => {
+    request = { model, options }
+    return reply('Inspect leaves and ask your extension officer.')
   })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => assert.fail('Chat must never make outbound HTTP calls')
+  t.after(() => { globalThis.fetch = originalFetch })
+  const result = await assistantChat(input, { farmType: 'crop', email: 'private@example.com' }, env)
   assert.equal(result.text, 'Inspect leaves and ask your extension officer.')
-  assert.deepEqual(assistantStatus(), { chat: true, photo: true, voice: false })
-  await assistantChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' }, {}, async (_url, options) => {
-    const body = JSON.parse(options.body)
-    assert.deepEqual(body.messages[1].content, imageRequest.messages[0].content)
-    return Response.json({ choices: [{ message: { content: 'Photo observations are uncertain.' } }] })
-  })
-  process.env.FARMBUDDY_AI_MODEL = 'test/text-model'
-  assert.deepEqual(assistantStatus(), { chat: true, photo: false, voice: false })
-  await assert.rejects(assistantChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' }, {}, async () => assert.fail('Unsupported photo must not be sent')), errorStatus(503))
-  process.env.OPENROUTER_MODEL = 'openai/gpt-4.1-mini'
-  assert.equal(assistantStatus().photo, true)
-  process.env.OPENROUTER_MODEL = 'https://evil.example/model'
-  assert.equal(assistantStatus().chat, false)
-  await assert.rejects(assistantChat(input, {}, async () => assert.fail('Invalid model must not be sent')), errorStatus(503))
-  delete process.env.OPENROUTER_MODEL
+  const event = { context: { cloudflare: { env } } }
+  assert.deepEqual(await assistantStatus(event), { chat: true, photo: false, voice: false })
+  assert.deepEqual(await assistantStatus({ context: { cloudflare: { env: { AI: {} } } } }), { chat: false, photo: false, voice: false })
+  assert.deepEqual(await assistantStatus(), { chat: false, photo: false, voice: false })
+  await assert.rejects(assistantChat(input, {}), errorStatus(503))
+  await assert.rejects(assistantChat({ ...input, image: 'data:image/png;base64,iVBORw0KGgo=' }, {}, native(() => assert.fail('No native vision contract'))), errorStatus(503))
+  for (const model of ['https://evil.example/model', 'vendor/not-a-native-model']) {
+    process.env.FARMBUDDY_AI_MODEL = model
+    assert.equal((await assistantStatus(event)).chat, false)
+    await assert.rejects(assistantChat(input, {}, env), errorStatus(503))
+  }
+  process.env.FARMBUDDY_AI_MODEL = '@cf/test/text-model'
+  assert.equal((await assistantChat(input, {}, env)).model, '@cf/test/text-model')
+  assert.equal((await assistantChat(input, {}, { ...env, FARMBUDDY_AI_MODEL: '@cf/test/binding-model' })).model, '@cf/test/binding-model')
   delete process.env.FARMBUDDY_AI_MODEL
   for (const status of [400, 401, 402, 403, 404, 422, 429, 500]) {
-    await assert.rejects(assistantChat(input, {}, async () => new Response('raw-provider-secret', { status })), error => error.statusCode === 502 && !error.message.includes('raw-provider-secret'))
+    await assert.rejects(assistantChat(input, {}, native(async () => { throw Object.assign(new Error('raw-provider-secret'), { statusCode: status }) })), error => error.statusCode === 502 && !error.message.includes('raw-provider-secret'))
   }
-  for (const payload of [{}, { choices: [] }, { choices: [{ message: { content: {} } }] }, { error: { code: 402, message: 'raw-provider-secret' } }]) {
-    await assert.rejects(assistantChat(input, {}, async () => Response.json(payload)), error => error.statusCode === 502 && !error.message.includes('raw-provider-secret'))
+  for (const payload of [{}, { response: 'legacy response' }, { choices: [] }, reply({}), { error: { code: 402, message: 'raw-provider-secret' } }, reply('x'.repeat(128001)), reply('<think>unfinished'), reply('private</think>answer'), reply('<think>secret</think>'), { choices: [{ message: { reasoning_content: 'private' } }] }]) {
+    await assert.rejects(assistantChat(input, {}, native(async () => payload)), error => error.statusCode === 502 && !error.message.includes('secret'))
   }
-  await assert.rejects(assistantChat(input, {}, async () => new Response('x'.repeat(128001))), errorStatus(502))
-  await assert.rejects(assistantChat(input, {}, async () => { throw new DOMException('secret', 'TimeoutError') }), errorStatus(502))
-  const long = await assistantChat(input, {}, async () => Response.json({ choices: [{ message: { content: 'x'.repeat(7000) } }] }))
+  await assert.rejects(assistantChat(input, {}, native(async () => { throw new DOMException('secret', 'TimeoutError') })), errorStatus(502))
+  await assert.rejects(assistantChat(input, {}, native(async () => reply('<think>outer<think>inner</think>private'))), errorStatus(502))
+  await t.test('native inference wait is bounded to 45 seconds', async clock => {
+    clock.mock.timers.enable({ apis: ['setTimeout'] })
+    const pending = assistantChat(input, {}, native(() => new Promise(() => {})))
+    const rejected = assert.rejects(pending, errorStatus(502))
+    clock.mock.timers.tick(44999)
+    let settled = false
+    pending.catch(() => { settled = true })
+    await Promise.resolve()
+    assert.equal(settled, false)
+    clock.mock.timers.tick(1)
+    await rejected
+    clock.mock.timers.reset()
+  })
+  const cleaned = await assistantChat(input, {}, native(async () => ({ choices: [{ message: { content: '<think>private reasoning</think>Inspect\u0000 leaves.', reasoning_content: 'never expose' } }] })))
+  assert.equal(cleaned.text, 'Inspect leaves.')
+  const long = await assistantChat(input, {}, native(async () => reply('x'.repeat(7000))))
   assert.equal(long.text.length, 6000)
-  assert.equal(result.model, 'openai/gpt-4.1-mini')
-  assert.equal(request.url, 'https://openrouter.ai/api/v1/chat/completions')
-  assert.equal(request.body.stream, false)
-  assert.equal(request.body.max_tokens, 1000)
-  assert.equal(request.options.redirect, 'error')
-  assert.ok(request.options.signal instanceof AbortSignal)
-  assert.equal(request.options.headers.Authorization, 'Bearer test-secret-never-live')
-  assert.equal(request.body.messages[0].role, 'system')
-  assert.equal(request.body.tools, undefined)
-  assert.match(request.body.messages[0].content, /Never give definitive/)
-  assert.ok(!request.body.messages[0].content.includes('private@example.com'))
-  await assert.rejects(assistantChat(input, {}, async () => { throw new Error('test-secret-never-live upstream internals') }), error => error.statusCode === 502 && !error.message.includes('secret'))
-  await assert.rejects(assistantChat(input, {}, async () => new Response('provider-private-key', { status: 401 })), error => error.statusCode === 502 && /credentials were rejected/.test(error.message) && !error.message.includes('provider-private-key'))
-  await assert.rejects(assistantChat(input, {}, async () => new Response('quota-private-details', { status: 429 })), error => error.statusCode === 502 && /quota or billing/.test(error.message) && !error.message.includes('quota-private-details'))
-  await assert.rejects(assistantChat(input, {}, async () => new Response('bad', { status: 404 })), error => error.statusCode === 502 && /model or endpoint/.test(error.message))
+  await assistantChat(input, {}, env)
+  assert.equal(result.model, '@cf/qwen/qwen3-30b-a3b-fp8')
+  assert.equal(request.model, result.model)
+  assert.equal(request.options.stream, false)
+  assert.equal(request.options.max_tokens, 1000)
+  assert.equal(request.options.messages[0].role, 'system')
+  assert.equal(request.options.tools, undefined)
+  assert.match(request.options.messages[0].content, /Never give definitive/)
+  assert.ok(!request.options.messages[0].content.includes('private@example.com'))
   process.env.YARNGPT_API_KEY = 'test-voice-never-live'
   delete process.env.YARNGPT_VOICE
   const audio = await assistantSpeak({ text: 'Inspect your leaves.' }, async (url, options) => {
@@ -178,17 +185,14 @@ test('assistant validation and mocked primary provider boundaries, no live calls
   await assert.rejects(assistantSpeak({ text: 'Hello' }, async () => Response.json({ secret: 'hidden' })), errorStatus(502))
   for (let i = 0; i < 10; i++) assistantLimit('rate-test')
   assert.throws(() => assistantLimit('rate-test'), errorStatus(429))
-  delete process.env.OPENROUTER_MODEL
   delete process.env.FARMBUDDY_AI_MODEL
-  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
 })
 
 test('local authenticated handlers return 401, disabled 503, malformed 400 and CSRF 403', async t => {
-  const keys = ['OPENROUTER_API_KEY', 'YARNGPT_API_KEY', 'FARMBUDDY_DATA_FILE']
+  const keys = ['YARNGPT_API_KEY', 'FARMBUDDY_DATA_FILE']
   const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
   t.after(() => { for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key] } })
-  delete process.env.OPENROUTER_API_KEY
   delete process.env.YARNGPT_API_KEY
   const directory = await mkdtemp(join(tmpdir(), 'farmbuddy-assistant-'))
   process.env.FARMBUDDY_DATA_FILE = join(directory, 'data.json')

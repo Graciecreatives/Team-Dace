@@ -4,7 +4,7 @@ Research and implementation decision, October 24, 2026.
 
 ## What is connected
 
-FarmBuddy's **Plant scanner** is separate from OpenRouter chat. It calls Pl@ntNet's specialist image-recognition service for either plant species identification or visible plant disease/pest suggestions. The scanner does not ask a language model to invent a disease name, confidence score or treatment.
+FarmBuddy's **Plant scanner** is separate from Workers AI chat. It calls Pl@ntNet's specialist image-recognition service for either plant species identification or visible plant disease/pest suggestions. The scanner does not ask a language model to invent a disease name, confidence score or treatment.
 
 The integration requires `PLANTNET_API_KEY` in the private `.env` and a server restart. For the deployed Worker, run `npm run cf:secrets -- --apply` after configuring the key. `.env.example` is a template only. The secret helper includes this key without exposing its value. The authenticated Settings service card reports configuration, not successful inference.
 

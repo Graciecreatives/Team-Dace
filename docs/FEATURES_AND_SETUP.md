@@ -22,10 +22,10 @@ npm run dev
 Visit localhost port 3000. Register, complete onboarding, and open a tool from the dashboard sidebar. Existing users without onboarding are asked to complete it. Crops route to `/dashboard/crops`, livestock/poultry to `/dashboard/livestock`, and mixed farms to `/dashboard`.
 
 ## Enable AI and voice
-1. Copy `.env.example` to `.env` locally and fill in `OPENROUTER_API_KEY` and/or `YARNGPT_API_KEY` yourself. Do not paste keys into chat or client-side code.
-2. Optionally select `OPENROUTER_MODEL` (default `openai/gpt-4.1-mini`) and `YARNGPT_VOICE`. Leave the voice blank for the provider default, or use an exact case-sensitive `name` from authenticated `GET /api/v1/voices`. Custom OpenRouter models currently support text only until image compatibility is verified.
-3. Restart the dev server after changing environment variables. Cloudflare production uses `npm run cf:secrets -- --apply` to upload private provider keys. See `docs/CLOUDFLARE.md`.
-4. Open FarmBuddyAI. Questions share selected farm profile fields and conversation context with OpenRouter and its selected model provider. Photos are sent only with the clearly labelled Send action, with a short provider disclosure and optional sharing details. Provider retention policies still apply.
+1. Cloudflare supplies chat through the private `AI` binding in `wrangler.jsonc`. No chat API key is needed in `.env`. The deployed Worker uses `FARMBUDDY_AI_MODEL=@cf/qwen/qwen3-30b-a3b-fp8`.
+2. For local native chat use `npm run cf:dev`, which uses real remote Workers AI inference and your account quota. Plain Nuxt `dev` / `host` has no AI binding and reports chat unavailable. This text model does not accept photos. Use the separate specialist scanners for supported photo tasks.
+3. Add optional `YARNGPT_API_KEY` and `YARNGPT_VOICE` to private `.env`. Voice may be blank for the provider default. Upload external secrets with `npm run cf:secrets -- --apply`. Change production model configuration in `wrangler.jsonc` and redeploy.
+4. Open FarmBuddyAI. Sending a question shares selected farm profile fields, conversation context and optionally selected operational records with Cloudflare Workers AI. Farm records remain opt-in.
 5. Read aloud shares the answer text with YarnGPT and returns audio. Browser dictation is a separate browser service, not YarnGPT transcription. Language support varies by browser/service. No microphone is opened automatically, and speech is never sent as a question without review.
 
 Active dictation shows animated bars, an elapsed-time counter and a Stop action. These bars are an activity indicator, not measured microphone levels. The active indicator starts only when the browser reports that listening has begun, not while permission is pending. Reduced-motion preferences disable the animation. Transcript entry remains editable and must be reviewed before sending or saving. Browser speech availability depends on browser support and microphone permissions, and phone microphone access may require an HTTPS deployment rather than a plain-HTTP LAN preview.
@@ -75,7 +75,8 @@ npm run test:production
 The API integration suites use isolated temporary data stores. The corruption tests intentionally return 500 and may print expected H3 errors; they verify failure without overwriting data, not corruption of the app's actual store. Weather and AI provider tests use synthetic upstream boundaries. Browser acceptance verified actual management forms, a simulated offline event/reconnect cycle, transcript review/save, a historical keyless weather response (superseded by mocked OpenWeather validation), map consent boundaries, and honest unconfigured AI controls. Paid AI/voice calls and real microphone transcription were not tested without credentials/hardware support.
 
 ## Official references checked October 23, 2026
-- OpenRouter chat completions: https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion
+- Cloudflare native AI bindings: https://developers.cloudflare.com/workers-ai/configuration/bindings/
+- Qwen3 native text model: https://developers.cloudflare.com/workers-ai/models/qwen3-30b-a3b-fp8/
 - YarnGPT voice API: https://www.yarngpt.ai/api-docs
 - OpenWeather five-day / three-hour forecast: https://openweathermap.org/api/forecast5
 - OpenWeather free access pricing (separate from One Call): https://openweathermap.org/price
@@ -98,7 +99,7 @@ Run `npm run host` to bind the development server to all network interfaces on p
 
 **Farm-specific AI answers:** FarmBuddyAI now offers an explicit **Use my farm records for this conversation** control and a small curated agricultural reference collection. Only a bounded snapshot of the signed-in owner's operational records is eligible. Financial entries, private notes and team/contact details are excluded. This is retrieval-assisted prompting, not automatic training. See `docs/AI_FARM_CONTEXT.md` for consent, sources and provider privacy boundaries.
 
-**Why FarmBuddyAI may be disabled:** chat needs a configured OpenRouter key, while spoken replies need a YarnGPT key. Create a private `.env` file using `.env.example` as a template, add your own `OPENROUTER_API_KEY` for chat and image guidance and `YARNGPT_API_KEY` for spoken answers, then restart Nuxt. Keep credentials on the server and out of Git, screenshots, public runtime configuration, and chat messages. No credentials are generated or purchased by the app. The configured indicator means a key is present, not that billing or model access has been verified. The interface supports rechecking configuration, and actual requests report safe credential, quota, or model-configuration errors without returning raw provider responses. Provider tests use mocks, not paid live requests.
+**Why FarmBuddyAI may be disabled:** chat needs the native Cloudflare `AI` binding, not a chat API key. Open the deployed Worker or use `npm run cf:dev`. Written replies use Workers AI, specialist plant recognition uses `PLANTNET_API_KEY`, experimental cattle screening uses its separate Roboflow configuration, and spoken replies use `YARNGPT_API_KEY`. Configuration checks do not spend inference quota or guarantee model availability. Requests remain bounded and errors do not expose provider credentials. Keep all keys private.
 
 ## Product storefronts and teams
 

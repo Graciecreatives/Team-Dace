@@ -2,7 +2,7 @@
 
 **Storage selection:** local-file details below apply only to `FARMBUDDY_DATABASE=local`. Cloudflare production uses private D1 persistence with revision-checked snapshot writes, private R2 product images and Workers hosting. Follow `docs/CLOUDFLARE.md` for provisioning and a non-overwriting cutover. Authentication is app-owned email/password with opaque server-side sessions in the selected database.
 
-Run with `npm run dev` or `npm run host` for LAN previews, or `npm run build` followed by `node .output/server/index.mjs`. Local core features need no external services. Cloudflare deployment and optional OpenRouter, YarnGPT and OpenWeather features need private server configuration. The API creates no demo data.
+Run with `npm run dev` or `npm run host` for LAN previews, or `npm run build` followed by `node .output/server/index.mjs`. Local core features need no external services. Cloudflare deployment and native Workers AI and optional Pl@ntNet, YarnGPT and OpenWeather features need private server configuration. The API creates no demo data.
 
 ## Contracts
 

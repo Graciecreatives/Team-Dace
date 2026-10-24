@@ -84,7 +84,7 @@ test('assistant modes keep review, provider consent, status and cleanup safeguar
   assert.match(source, /status\.value\?\.chat && status\.value\?\.photo/)
   assert.match(source, /if \(!status\.value\?\.chat \|\| busy\.value \|\| speaking\.value \|\| dictationActive\.value/)
   assert.match(source, /image\.value && !status\.value\?\.photo/)
-  assert.match(source, /Send shares this photo with OpenRouter/)
+  assert.match(source, /Send shares this photo with Cloudflare Workers AI/)
   assert.doesNotMatch(source, /type="checkbox"/)
   assert.match(source, /:aria-pressed="includeFarmContext"/)
   assert.match(source, /generation !== sessionGeneration/)

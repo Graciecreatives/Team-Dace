@@ -1,6 +1,6 @@
 # Cloudflare deployment and operations
 
-FarmBuddy runs as a full-stack **Cloudflare Worker**, with **D1** application data and **private R2** product images. Authentication is application-owned email/password plus opaque HttpOnly sessions stored in D1, not a separate managed authentication service. OpenRouter, YarnGPT and OpenWeather remain external optional providers. No database passwords, public database SDK, R2 access keys or old provider credentials are needed.
+FarmBuddy runs as a full-stack **Cloudflare Worker**, with **D1** application data and **private R2** product images. Authentication is application-owned email/password plus opaque HttpOnly sessions stored in D1, not a separate managed authentication service. Cloudflare Workers AI provides native text chat through the private `AI` binding. YarnGPT, Pl@ntNet, Roboflow and OpenWeather remain external optional providers. No database passwords, public database SDK, R2 access keys or old provider credentials are needed.
 
 ## Provisioned resources
 
@@ -68,7 +68,7 @@ npm run cf:secrets
 npm run cf:secrets -- --apply
 ```
 
-Only `OPENROUTER_API_KEY`, `YARNGPT_API_KEY`, `YARNGPT_VOICE` and `OPENWEATHER_API_KEY` are uploaded. Values are not printed or passed in command-line arguments. Empty keys are not uploaded and do not delete existing remote secrets. Update `OPENROUTER_MODEL` in `wrangler.jsonc` for production. Without keys, the app accurately reports unavailable live AI/voice/weather rather than fabricating responses. No live paid inference is performed by tests. Set provider budgets yourself.
+Only `PLANTNET_API_KEY`, `ROBOFLOW_API_KEY`, its explicit experiment flag, `YARNGPT_API_KEY`, `YARNGPT_VOICE` and `OPENWEATHER_API_KEY` are uploaded. Values are not printed or passed in command-line arguments by this helper. Empty keys are not uploaded and do not delete existing remote secrets. Workers AI needs no secret: `wrangler.jsonc` binds `AI` and sets `FARMBUDDY_AI_MODEL` to `@cf/qwen/qwen3-30b-a3b-fp8`. Deploy after changing its model. Native chat uses your Workers AI account quota, including `npm run cf:dev` remote preview. Plain Nuxt dev has no binding and reports chat unavailable. The model is text-only, while specialist image recognition uses separate providers. Provider unit tests do not make live inference requests. Set account budgets yourself.
 
 Wrangler uses the existing local OAuth login. CI can use a scoped `CLOUDFLARE_API_TOKEN` in its private secret store. Never put it in public runtime config or commit it. Resource creation did not enable a paid plan, but usage remains subject to your account plan and provider billing. No payment, SMS or invitation-email service is provisioned.
 

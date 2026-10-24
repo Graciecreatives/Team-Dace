@@ -6,7 +6,7 @@ import { readdirSync } from 'node:fs'
 const env = {
   ...process.env,
   FARMBUDDY_AUTH: 'local', FARMBUDDY_DATABASE: 'local', FARMBUDDY_IMAGE_STORAGE: 'local',
-  OPENROUTER_API_KEY: '', PLANTNET_API_KEY: '', ROBOFLOW_API_KEY: '', FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN: 'false', YARNGPT_API_KEY: '', OPENWEATHER_API_KEY: '',
+  PLANTNET_API_KEY: '', ROBOFLOW_API_KEY: '', FARMBUDDY_EXPERIMENTAL_ANIMAL_SCAN: 'false', YARNGPT_API_KEY: '', OPENWEATHER_API_KEY: '',
 }
 const units = [
   ...readdirSync('app/tests').filter(file => file.endsWith('.test.mjs')).map(file => `app/tests/${file}`),
