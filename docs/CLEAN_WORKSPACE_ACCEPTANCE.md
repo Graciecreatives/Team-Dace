@@ -18,4 +18,17 @@ Verified October 24, 2026 against an isolated local account, not a real farmer's
 - Component command IDs are preserved by the workspace composable so a receipt can clear only its matching submitted draft.
 - Domain and actual HTTP tests cover permissions, replay, history bounds, no partial mutations, safe minor-unit rounding, concurrent overselling rejection, and unchanged legacy unpaid orders.
 
-Paid sales record payment already received. They do not charge a card or collect money. Deployment acceptance is recorded separately after publishing.
+Paid sales record payment already received. They do not charge a card or collect money.
+
+## Deployed acceptance
+
+Published October 24, 2026 as Worker version `ed449ff2-de87-4e0e-8484-79c4c927a737`.
+
+- Full regression suite: 360 passing tests, plus the separate native Workers crypto check.
+- Node production build and built-server workflow tests passed. Cloudflare Worker build passed.
+- Live HTTPS smoke tests exercised authentication, journal/reminder CRUD, stock, legacy unpaid sales and the new atomic paid-sale command, including replay, cashbook and invoice assertions.
+- Live image processing, private/public R2 boundaries, storefront publication, login persistence and CSRF checks passed.
+- The exact disposable test account and image were removed with the scoped cleanup tool. Other account data was preserved.
+- Live chat composer measured about 8 px above the viewport bottom with no horizontal overflow or configured-state label.
+- Location success, denial, manual fallback, timeout and stale callback behavior were tested locally. No claim is made that this environment granted physical GPS access.
+
