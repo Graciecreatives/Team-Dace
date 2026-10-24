@@ -24,6 +24,7 @@ ALTER TABLE farmbuddy_private.app_state ADD CONSTRAINT app_snapshot_format CHECK
     AND jsonb_typeof(snapshot->'notes') = 'array'
     AND (NOT (snapshot ? 'marketplaceFarms') OR jsonb_typeof(snapshot->'marketplaceFarms') = 'array')
     AND (NOT (snapshot ? 'marketplaceProducts') OR jsonb_typeof(snapshot->'marketplaceProducts') = 'array')
+    AND (NOT (snapshot ? 'farmWorkspaces') OR jsonb_typeof(snapshot->'farmWorkspaces') = 'array')
     AND (NOT (snapshot ? 'marketplaceImages') OR jsonb_typeof(snapshot->'marketplaceImages') = 'array')
   ) IS TRUE);
 ALTER TABLE farmbuddy_private.app_state ENABLE ROW LEVEL SECURITY;

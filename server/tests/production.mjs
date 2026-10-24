@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -82,14 +83,31 @@ try {
   assert.equal((await call('/api/community', 'POST', { action: 'search', latitude: 7.4, longitude: 3.9 }, registered.cookie)).value.farmers.length, 0)
   const noAI = await fetch(base + '/api/assistant/chat', { method: 'POST', headers: { Origin: `https://127.0.0.1:${port}`, 'Content-Type': 'application/json', Cookie: registered.cookie }, body: JSON.stringify({ messages: [{ role: 'user', content: 'How can I inspect my maize?' }] }) })
   assert.equal(noAI.status, 503)
+  const cashStock = await call('/api/tools/inventory', 'POST', { name: 'Restart maize', quantity: 0, unit: 'kg', threshold: 1, notes: '' }, registered.cookie)
+  const command = (action, fields = {}) => call('/api/management', 'POST', { action, farmId: registered.value.user.id, commandId: randomUUID(), ...fields }, registered.cookie)
+  const season = await command('season.create', { name: 'Restart season', kind: 'crops', startsOn: '2026-10-01', endsOn: '2027-03-31' })
+  const seasonId = season.value.planning.seasons[0].id
+  await command('harvest.create', { seasonId, inventoryId: cashStock.value.inventory.id, quantity: 10, date: '2026-10-24' })
+  const sale = await command('orders.create', { seasonId, inventoryId: cashStock.value.inventory.id, quantity: 4, unitPrice: 25.5, customer: 'Restart buyer', date: '2026-10-24' })
+  const orderId = sale.value.business.orders[0].id
+  const confirmed = await command('orders.confirm', { id: orderId })
+  assert.equal(confirmed.value.inventory.find(row => row.id === cashStock.value.inventory.id).quantity, 6)
+  assert.equal(confirmed.value.business.reports.seasons[0].incomeMinor, 10200)
+  const beforeRestart = (await call('/api/farm', 'GET', undefined, registered.cookie)).value
   await stop()
   await start()
   assert.equal((await call('/api/auth/me', 'GET', undefined, registered.cookie)).value.user.id, registered.value.user.id)
   assert.deepEqual((await call('/api/auth/me', 'GET', undefined, registered.cookie)).value.user, profile.value.user)
-  assert.deepEqual((await call('/api/farm', 'GET', undefined, registered.cookie)).value.records, [record.value.record])
+  assert.deepEqual((await call('/api/farm', 'GET', undefined, registered.cookie)).value.records, beforeRestart.records)
+  assert.ok(beforeRestart.records.some(row => row.id === record.value.record.id))
+  const connected = (await call('/api/management', 'GET', undefined, registered.cookie)).value
+  assert.equal(connected.business.orders[0].id, orderId)
+  assert.equal(connected.business.orders[0].status, 'confirmed')
+  assert.equal(connected.inventory.find(row => row.id === cashStock.value.inventory.id).quantity, 6)
+  assert.equal(connected.business.reports.seasons[0].profitMinor, 10200)
   const tools = (await call('/api/tools', 'GET', undefined, registered.cookie)).value
   assert.deepEqual(tools.enterprises, [enterprise.value.enterprise])
-  assert.deepEqual(tools.inventory, [inventory.value.inventory])
+  assert.deepEqual(tools.inventory.find(row => row.id === inventory.value.inventory.id), inventory.value.inventory)
   assert.deepEqual(tools.referrals, [referral.value.referral])
   assert.deepEqual(tools.notes, [note.value.note])
   assert.deepEqual((await call('/api/farm-team', 'GET', undefined, registered.cookie)).value, team.value)
@@ -98,7 +116,7 @@ try {
   assert.equal((await fetch(base + photo.imageUrl)).status, 200, 'Uploaded image survives server restart')
   await call('/api/auth/logout', 'POST', undefined, registered.cookie)
   assert.equal((await fetch(base + '/api/auth/me', { headers: { Cookie: registered.cookie } })).status, 401)
-  console.log('PASS: built Nitro auth/tools/AI/community/marketplace/team routes, private/public boundaries, session and data persistence across restart, logout (no live paid provider calls)')
+  console.log('PASS: built Nitro connected harvest/stock/cash/season reports plus auth/tools/AI/community/marketplace/team routes, private/public boundaries, session and data persistence across restart, logout (no live paid provider calls)')
 } finally {
   await stop()
   await rm(directory, { recursive: true, force: true })

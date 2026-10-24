@@ -42,7 +42,7 @@ All credentials are read by server code. The service-role key and PostgreSQL URI
 - Refresh and verification are performed before feature data callbacks. Existing farm ownership checks and explicit public data projections remain in force.
 - Missing/invalid explicit Supabase configuration or provider outages do not silently fall back to local passwords. Existing local `farmbuddy_session` cookies are not accepted in Supabase mode.
 - Logout clears the current browser's auth cookies and requests local-scope Supabase sign-out. Other devices are not globally signed out. Supabase access JWTs may remain valid until their provider expiry even after refresh-session revocation. Do not assume an already-stolen access token is immediately invalidated by logout.
-- Password recovery, password resets, account deletion, MFA, social OAuth and teammate permissions are not added by this change.
+- Password recovery, password resets, account deletion, MFA and social OAuth are not added by this change. Connected workspace teammate permissions are documented in `docs/CONNECTED_MANAGEMENT.md`.
 
 ## 4. Existing local accounts are not automatically migrated
 

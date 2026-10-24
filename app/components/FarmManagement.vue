@@ -7,9 +7,10 @@ const busy = ref(false)
 const error = ref('')
 const message = ref('')
 const editing = ref('')
+const editingVersion = ref('')
 const deleting = ref('')
 const form = reactive({})
-const config = computed(() => ({ enterprises: { title: 'Your farm register', singular: 'enterprise', intro: 'Keep crops and livestock together, with the details that matter to your farm.' }, inventory: { title: 'Supplies, without surprises', singular: 'supply', intro: 'Track physical stock: seed, feed, fertiliser, tools, and harvested produce. Set low-stock thresholds and expiry dates. Bookkeeping tracks the money spent or earned, not these quantities. Stock changes do not automatically create financial records.' }, referrals: { title: 'Prepare for expert advice', singular: 'case summary', intro: 'Organise your observations before speaking with an agronomist or veterinarian.' } }[props.section]))
+const config = computed(() => ({ enterprises: { title: 'Your farm register', singular: 'enterprise', intro: 'Keep crops and livestock together, with the details that matter to your farm.' }, inventory: { title: 'Supplies, without surprises', singular: 'supply', intro: 'Track physical stock: seed, feed, fertiliser, tools, and harvested produce. Set low-stock thresholds and expiry dates. Bookkeeping tracks the money spent or earned, not these quantities. Manual stock adjustments do not create financial records. Production harvests, task input use and confirmed sales update linked stock through their workflows.' }, referrals: { title: 'Prepare for expert advice', singular: 'case summary', intro: 'Organise your observations before speaking with an agronomist or veterinarian.' } }[props.section]))
 const fields = computed(() => props.section === 'enterprises' ? ['name', 'quantity', 'unit', 'startedOn', 'notes'] : props.section === 'inventory' ? ['name', 'quantity', 'unit', 'threshold', 'expiresOn', 'notes'] : ['title', 'summary', 'contact'])
 const labels = { name: 'Name', quantity: 'Quantity', unit: 'Unit (e.g. head, acres, kg)', startedOn: 'Started on (optional)', notes: 'Notes (optional)', threshold: 'Low stock threshold', expiresOn: 'Expires on (optional)', title: 'Case title', summary: 'Observations and questions', contact: 'Your chosen professional / contact (optional)' }
 const limits = { name: 150, unit: 60, notes: 4000, title: 200, summary: 6000, contact: 300 }
@@ -17,6 +18,7 @@ function reset(item) {
   for (const key of Object.keys(form)) delete form[key]
   Object.assign(form, props.section === 'enterprises' ? { kind: props.user.farmType === 'livestock' ? 'livestock' : 'crops', name: '', quantity: '', unit: '', startedOn: '', notes: '' } : props.section === 'inventory' ? { name: '', quantity: 0, unit: '', threshold: 0, expiresOn: '', notes: '' } : { title: '', professionalType: 'agronomist', summary: '', contact: '', status: 'draft' })
   editing.value = item?.id || ''
+  editingVersion.value = item?.updatedAt || ''
   if (item) for (const key of Object.keys(form)) form[key] = item[key] ?? ''
   deleting.value = ''
 }
@@ -42,7 +44,7 @@ async function save() {
   message.value = ''
   const section = props.section
   const version = generation
-  const input = { ...form }
+  const input = { ...form, ...(editing.value && editingVersion.value ? { expectedUpdatedAt: editingVersion.value } : {}) }
   for (const key of ['quantity', 'threshold']) if (key in input) input[key] = input[key] === '' ? null : Number(input[key])
   try {
     const result = await $fetch(`/api/tools/${section}${editing.value ? `/${editing.value}` : ''}`, { method: editing.value ? 'PATCH' : 'POST', body: input })

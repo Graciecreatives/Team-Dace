@@ -124,7 +124,7 @@ function toolFields(collection, input, partial) {
     notes: { title: 200, body: 10000 },
   }
   const schema = schemas[collection]
-  if (Object.keys(input).some(key => !Object.hasOwn(schema, key) && !(collection === 'notes' && (key === 'id' || key === 'expectedUpdatedAt')))) fail(400, 'Unknown tool field')
+  if (Object.keys(input).some(key => !Object.hasOwn(schema, key) && key !== 'expectedUpdatedAt' && !(collection === 'notes' && key === 'id'))) fail(400, 'Unknown tool field')
   const result = {}
   for (const [key, rule] of Object.entries(schema)) {
     if (partial && input[key] === undefined) continue
@@ -142,7 +142,7 @@ function toolFields(collection, input, partial) {
     } else value = text(value, key, rule, optional)
     result[key] = value
   }
-  if (collection === 'notes' && input.expectedUpdatedAt !== undefined && (typeof input.expectedUpdatedAt !== 'string' || input.expectedUpdatedAt.length > 40)) fail(400, 'Invalid expectedUpdatedAt')
+  if (input.expectedUpdatedAt !== undefined && (typeof input.expectedUpdatedAt !== 'string' || input.expectedUpdatedAt.length > 40)) fail(400, 'Invalid expectedUpdatedAt')
   return result
 }
 
@@ -262,6 +262,7 @@ export default defineEventHandler(async event => {
       if (method === 'DELETE') {
         const index = data.records.findIndex(item => item.id === recordDelete[1] && item.userId === user.id)
         if (index < 0) fail(404, 'Record not found')
+        if (data.records[index].sourceId) fail(409, 'Linked workflow records cannot be deleted independently of their source')
         data.records.splice(index, 1)
         return { ok: true }
       }
@@ -318,12 +319,16 @@ export default defineEventHandler(async event => {
         return { [toolNames[collection]]: publicRecord(item) }
       }
       if (index < 0) fail(404, 'Item not found')
+      const linkedStock = collection === 'inventory' && (data.farmWorkspaces || []).some(w => w.id === user.id && w.movements.some(m => m.inventoryId === id))
       if (method === 'DELETE') {
+        if (linkedStock) fail(409, 'Inventory with production or sales history cannot be deleted')
+        if (collection === 'enterprises' && (data.farmWorkspaces || []).some(w => w.id === user.id && w.seasons.some(s => s.enterpriseId === id))) fail(409, 'Register entry is linked to a production season')
         data[collection].splice(index, 1)
         return { ok: true }
       }
       const item = data[collection][index]
-      if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== item.updatedAt) fail(409, 'Note changed since last sync. Reload before editing.')
+      if (linkedStock && input.expectedUpdatedAt === undefined) fail(409, 'Reload linked inventory before editing')
+      if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== item.updatedAt) fail(409, 'Item changed since last sync. Reload before editing.')
       Object.assign(item, fields, { updatedAt: new Date(Math.max(Date.now(), Date.parse(item.updatedAt) + 1)).toISOString() })
       return { [toolNames[collection]]: publicRecord(item) }
     }, true)
