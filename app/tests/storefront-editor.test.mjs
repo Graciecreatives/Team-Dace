@@ -7,8 +7,8 @@ import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compil
 const source = readFileSync(new URL('../components/FarmMarketplace.vue', import.meta.url), 'utf8')
 function editor(fetcher, prepare = async () => new Blob(['photo'])) {
   const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/m, '')
-  const context = vm.createContext({ defineProps: () => ({ user: { id: 'one' } }), reactive: value => value, ref: value => ({ value }), computed: get => ({ get value() { return get() } }), onMounted() {}, onUnmounted() {}, watch() {}, AbortController, prepareProductPhoto: prepare, $fetch: fetcher })
-  vm.runInContext(script + '\nglobalThis.editor = { farm, savedFarm, shareLink, load, save, uploadPhoto, uploadingPhoto, ownedCover, apply, origin, draft, busy, products, activeTab, composerOpen, search, productFilter, counts, visibleProducts, previewProducts, openComposer, closeComposer, selectTab, focusTab, edit, saveProduct, farmDirty }', context)
+  const context = vm.createContext({ defineProps: () => ({ user: { id: 'one' } }), reactive: value => value, ref: value => ({ value }), computed: get => ({ get value() { return get() } }), onMounted() {}, onUnmounted() {}, watch() {}, nextTick: callback => Promise.resolve().then(callback), AbortController, prepareProductPhoto: prepare, $fetch: fetcher })
+  vm.runInContext(script + '\nglobalThis.editor = { farm, savedFarm, shareLink, load, save, uploadPhoto, uploadingPhoto, ownedCover, apply, origin, draft, busy, products, activeTab, composerOpen, search, productFilter, counts, visibleProducts, previewProducts, openComposer, closeComposer, selectTab, focusTab, composerHeading, boardHeading, edit, saveProduct, farmDirty }', context)
   return context.editor
 }
 const catalog = { farm: { slug: 'my-farm', name: 'Farm', published: false }, products: [] }
@@ -182,4 +182,25 @@ test('tabs support arrow, home and end navigation with roving focus', () => {
   assert.match(source, /v-if="!composerOpen"/)
   assert.match(source, /v-if="isOwnedImage\(product.imageUrl\)"/)
   assert.match(source, /prefers-reduced-motion:reduce/)
+})
+
+test('composer transitions focus and scroll headings after the render tick', async () => {
+  const state = editor(async () => catalog)
+  state.apply(catalog)
+  const calls = []
+  const heading = name => ({ focus() { calls.push(`${name}:focus`) }, scrollIntoView(options) { calls.push(`${name}:${options.block}`) } })
+  state.composerHeading.value = heading('composer')
+  state.boardHeading.value = heading('board')
+  state.openComposer()
+  assert.equal(calls.length, 0)
+  await Promise.resolve()
+  state.closeComposer()
+  await Promise.resolve()
+  state.edit({ id: 'one', name: 'Beans' })
+  await Promise.resolve()
+  await state.saveProduct()
+  assert.deepEqual(calls, ['composer:focus', 'composer:nearest', 'board:focus', 'board:nearest', 'composer:focus', 'composer:nearest', 'board:focus', 'board:nearest'])
+  assert.match(source, /width:100%;max-width:none;padding:0;background:transparent/)
+  assert.match(source, /grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/)
+  assert.match(source, /grid-template-columns:320px minmax\(0,1fr\)/)
 })
