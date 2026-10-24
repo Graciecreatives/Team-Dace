@@ -1,6 +1,7 @@
 <script setup>
 import { NotebookPen, Plus, CloudCheck, CloudOff, RefreshCw, Copy, Trash2, Mic, FileCheck } from 'lucide-vue-next'
 import { addNote, loadNotes, persistNotes, mergeServerNotes, syncPending, transcriptDraft } from '../utils/offline-notes.js'
+import { createChatRecorder } from '../utils/chat-recorder.js'
 const props = defineProps({ user: { type: Object, default: () => ({}) }, mode: { type: String, default: 'notes' } })
 const emit = defineEmits(['records-changed'])
 const notes = ref([])
@@ -17,6 +18,11 @@ const busy = ref(false)
 const recordBusy = ref(false)
 const listening = ref(false)
 const microphonePending = ref(false)
+const processing = ref(false)
+const checkingVoice = ref(false)
+const nativeAvailable = ref(false)
+const voiceActive = computed(() => listening.value || microphonePending.value || processing.value)
+let audioRecorder, transcriptionController, statusController, voiceSession = 0, permissionTimer, stopTimer
 const elapsedSeconds = ref(0)
 let listeningTimer
 const elapsedLabel = computed(() => `${Math.floor(elapsedSeconds.value / 60).toString().padStart(2, '0')}:${(elapsedSeconds.value % 60).toString().padStart(2, '0')}`)
@@ -30,9 +36,36 @@ const record = reactive(transcriptDraft(''))
 let storage, recognition, mounted = false, generation = 0, controller
 const owner = computed(() => props.user?.id ? String(props.user.id) : '')
 function persist() { storageWarning.value = persistNotes(storage, owner.value, notes.value) }
-function stopListening() { if (recognition) { recognition.onstart = null; recognition.onresult = null; recognition.onend = null; recognition.onerror = null; recognition.abort(); recognition = null } endIndicator() }
+function cancelVoice() {
+  voiceSession++; clearTimeout(permissionTimer); clearTimeout(stopTimer)
+  transcriptionController?.abort(); transcriptionController = undefined
+  audioRecorder?.cancel(); audioRecorder = undefined
+  if (recognition) { recognition.onstart = null; recognition.onresult = null; recognition.onend = null; recognition.onerror = null; try { recognition.abort() } catch {} recognition = null }
+  endIndicator(); processing.value = false
+}
+function stopListening() {
+  if (microphonePending.value) { cancelVoice(); return }
+  if (audioRecorder) { audioRecorder.stop(); return }
+  if (!recognition || processing.value) return
+  processing.value = true; listening.value = false; clearInterval(listeningTimer)
+  clearTimeout(stopTimer)
+  const active = recognition
+  stopTimer = setTimeout(() => { if (recognition === active) { cancelVoice(); error.value = 'Dictation finalization timed out. Review the words received or type below.' } }, 3000)
+  try { active.stop() } catch { cancelVoice(); error.value = 'Could not finalize dictation. Review or type below.' }
+}
+async function checkVoice() {
+  statusController?.abort(); nativeAvailable.value = false
+  if (!mounted || props.mode !== 'voice' || !owner.value) { checkingVoice.value = false; return }
+  const token = generation
+  const request = new AbortController(); statusController = request; checkingVoice.value = true
+  try {
+    const status = await $fetch('/api/assistant/status', { signal: request.signal, timeout: 10000, retry: 0 })
+    if (mounted && token === generation && !request.signal.aborted) nativeAvailable.value = !!status?.transcription && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder
+  } catch { /* Browser dictation and typed input remain available. */ }
+  finally { if (mounted && token === generation && statusController === request) checkingVoice.value = false }
+}
 function resetUser() {
-  generation++; controller?.abort(); stopListening(); busy.value = false; recordBusy.value = false
+  generation++; controller?.abort(); cancelVoice(); checkVoice(); busy.value = false; recordBusy.value = false
   notes.value = []; title.value = ''; body.value = ''; transcript.value = ''; error.value = ''; feedback.value = ''; reviewed.value = false
   composing.value = false
   Object.assign(record, transcriptDraft(''))
@@ -41,7 +74,7 @@ function resetUser() {
   notes.value = loaded.notes; storageWarning.value = loaded.error
   if (owner.value) sync()
 }
-watch(owner, resetUser, { flush: 'sync' })
+watch([owner, () => props.mode], resetUser, { flush: 'sync' })
 async function sync() {
   if (busy.value || !online.value || !owner.value) return
   const token = generation
@@ -76,32 +109,89 @@ async function deleteNote(note) {
   } catch (cause) { if (token === generation) { if (note.status === 'pending' && (cause?.statusCode === 404 || cause?.response?.status === 404)) { notes.value = notes.value.filter(n => n.id !== note.id); persist(); feedback.value = 'Unsynced note removed from this device.' } else error.value = 'Could not delete. The note has been kept. Retry online.' } }
   finally { if (token === generation) busy.value = false }
 }
+function startClock() {
+  elapsedSeconds.value = 0
+  const started = Date.now()
+  clearInterval(listeningTimer)
+  listeningTimer = setInterval(() => { elapsedSeconds.value = Math.min(60, Math.floor((Date.now() - started) / 1000)) }, 250)
+}
+async function startNative() {
+  const session = voiceSession
+  const current = () => mounted && session === voiceSession
+  const hint = language.value.split('-')[0]
+  audioRecorder = createChatRecorder({
+    mediaDevices: navigator.mediaDevices, MediaRecorder: window.MediaRecorder,
+    onState(state) {
+      if (!current()) return
+      microphonePending.value = state === 'permission'; listening.value = state === 'recording'
+      processing.value = state === 'processing'
+      if (state === 'recording') startClock()
+      else clearInterval(listeningTimer)
+    },
+    onError(cause) { if (current()) { cancelVoice(); error.value = `${cause?.message || 'Microphone unavailable'}. Check permission or type below.` } },
+    async onAudio(blob) {
+      if (!current()) return
+      processing.value = true
+      const request = new AbortController(); transcriptionController = request
+      try {
+        const audio = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = () => reject(new Error('Could not read audio'))
+          reader.readAsDataURL(new Blob([blob], { type: blob.type.split(';')[0] }))
+        })
+        if (!current()) return
+        const result = await $fetch('/api/assistant/transcribe', { method: 'POST', retry: 0, timeout: 50000, signal: request.signal, body: { audio, ...(['en', 'yo', 'ha'].includes(hint) ? { language: hint } : {}) } })
+        if (!current()) return
+        if (typeof result?.text !== 'string') throw new Error('Invalid transcription response')
+        transcript.value = `${transcript.value} ${result.text.trim()}`.trim().slice(0, 2000)
+        feedback.value = result.text.trim() ? 'Transcription ready. Review and edit before preparing a record.' : 'No words heard. Try again or type below.'
+      } catch { if (current()) error.value = 'Could not transcribe audio. Check your connection, try again or type below.' }
+      finally { if (current()) { processing.value = false; audioRecorder = undefined; transcriptionController = undefined } }
+    }
+  })
+  await audioRecorder.start()
+}
 function startListening() {
-  error.value = ''
+  if (!mounted || props.mode !== 'voice' || !owner.value || voiceActive.value || recordBusy.value || checkingVoice.value) return
+  cancelVoice(); error.value = ''; feedback.value = ''; reviewed.value = false
+  if (nativeAvailable.value && online.value) { startNative(); return }
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!Recognition) return
-  stopListening()
-  const token = generation
-  recognition = new Recognition(); recognition.lang = language.value; recognition.interimResults = false
-  recognition.onresult = event => {
-    if (token !== generation) return
-    const text = Array.from(event.results).map(result => result[0].transcript).join(' ')
-    transcript.value = `${transcript.value} ${text}`.trim().slice(0, 2000)
+  const session = voiceSession
+  const current = () => mounted && session === voiceSession
+  let active
+  try { active = new Recognition() } catch { error.value = 'Could not start browser dictation. Type below instead.'; return }
+  recognition = active
+  active.lang = language.value; active.interimResults = false; active.continuous = true
+  active.onresult = event => {
+    if (!current()) return
+    for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
+      if (!event.results[i].isFinal) continue
+      transcript.value = `${transcript.value} ${event.results[i][0]?.transcript || ''}`.trim().slice(0, 2000)
+    }
   }
-  recognition.onstart = () => {
-    if (token !== generation) return
-    microphonePending.value = false; listening.value = true; elapsedSeconds.value = 0
-    const started = Date.now()
-    listeningTimer = setInterval(() => { elapsedSeconds.value = Math.floor((Date.now() - started) / 1000) }, 250)
+  active.onstart = () => {
+    if (!current()) return
+    clearTimeout(permissionTimer); microphonePending.value = false; listening.value = true; startClock()
+    stopTimer = setTimeout(stopListening, 60000)
   }
-  recognition.onerror = () => { if (token === generation) { error.value = 'Browser dictation could not continue. Check microphone permission or type below.'; endIndicator() } }
-  recognition.onend = () => { if (token === generation) endIndicator() }
-  try { microphonePending.value = true; recognition.start() } catch { endIndicator(); error.value = 'Could not start dictation. You can always type below.' }
+  active.onerror = event => {
+    if (!current()) return
+    cancelVoice()
+    error.value = event.error === 'language-not-supported' ? 'This browser does not support that language. Choose another or type below.' : 'Browser dictation could not continue. Check microphone permission or type below.'
+  }
+  active.onend = () => { if (current()) { cancelVoice(); feedback.value = 'Dictation stopped. Review the transcript before preparing a record.' } }
+  try {
+    microphonePending.value = true
+    permissionTimer = setTimeout(() => { if (current()) { cancelVoice(); error.value = 'Microphone permission timed out. Try again or type below.' } }, 15000)
+    active.start()
+  } catch { cancelVoice(); error.value = 'Could not start dictation. You can always type below.' }
 }
-function prepareRecord() { Object.assign(record, transcriptDraft(transcript.value)); reviewed.value = false; feedback.value = 'Draft prepared. Choose a category and review every field before confirming.' }
+function prepareRecord() { if (voiceActive.value || recordBusy.value) return; Object.assign(record, transcriptDraft(transcript.value)); reviewed.value = false; feedback.value = 'Draft prepared. Choose a category and review every field before confirming.' }
 watch(record, () => { reviewed.value = false }, { flush: 'sync' })
 async function saveRecord() {
-  if (!reviewed.value || !online.value || !owner.value || !record.title.trim() || recordBusy.value) return
+  if (props.mode !== 'voice' || voiceActive.value || !reviewed.value || !online.value || !owner.value || !record.title.trim() || recordBusy.value) return
   if (record.category !== 'activity' && (!Number.isFinite(Number(record.amount)) || Number(record.amount) <= 0)) { error.value = 'Enter a positive amount for income or expense.'; return }
   if (record.note.length > 2000) { error.value = 'Shorten the record note to 2,000 characters before saving.'; return }
   const token = generation
@@ -112,7 +202,7 @@ async function saveRecord() {
   } catch { if (token === generation) error.value = 'Record save was not confirmed. Check farm records before retrying to avoid duplicates. Your draft is kept.' }
   finally { if (token === generation) recordBusy.value = false }
 }
-function connectionChanged() { online.value = navigator.onLine; if (online.value && props.mode !== 'voice') sync() }
+function connectionChanged() { online.value = navigator.onLine; if (props.mode === 'voice') checkVoice(); else if (online.value) sync() }
 onMounted(() => {
   mounted = true
   try { storage = window.localStorage } catch { storage = null }
@@ -121,7 +211,7 @@ onMounted(() => {
   window.addEventListener('online', connectionChanged); window.addEventListener('offline', connectionChanged)
   resetUser()
 })
-onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopListening(); window.removeEventListener('online', connectionChanged); window.removeEventListener('offline', connectionChanged) })
+onUnmounted(() => { mounted = false; generation++; controller?.abort(); statusController?.abort(); cancelVoice(); window.removeEventListener('online', connectionChanged); window.removeEventListener('offline', connectionChanged) })
 </script>
 
 <template>
@@ -136,10 +226,13 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
     <p v-if="error" role="alert" class="notice">{{ error }}</p>
     <p role="status" aria-live="polite">{{ feedback }}</p>
     <template v-if="mode === 'voice'">
-      <p>Browser dictation uses your browser's speech service, not YarnGPT. Your browser may send audio to its provider and may need internet. YarnGPT voice AI is a separate assistant feature.</p>
-      <label>Dictation language<select v-model="language" :disabled="listening || microphonePending"><option value="en-NG">English (Nigeria)</option><option value="en-GB">English (UK)</option><option value="yo-NG">Yorùbá</option><option value="ha-NG">Hausa</option><option value="ig-NG">Igbo</option></select></label>
-      <p v-if="!supported">Browser dictation is unavailable. Type or paste your transcript below.</p>
-      <button v-if="supported" type="button" :disabled="!owner" @click="listening || microphonePending ? stopListening() : startListening()"><Mic :size="18" aria-hidden="true" />{{ listening ? 'Stop dictation' : microphonePending ? 'Cancel microphone request' : 'Enable microphone and start browser dictation' }}</button>
+      <p>Record up to 60 seconds. With native transcription, audio is sent to this app's Workers AI transcription service after Stop or the 60-second limit and is not saved as audio by this tool. Otherwise browser dictation may send audio to your browser's speech provider. Only start if you consent. You can always type instead.</p>
+      <p v-if="nativeAvailable">Native transcription is available while connected. Igbo uses automatic language detection, which may be inaccurate. Review every word.</p>
+      <p v-if="checkingVoice" role="status">Checking transcription availability…</p>
+      <label>Dictation language<select v-model="language" :disabled="voiceActive || recordBusy"><option value="en-NG">English (Nigeria)</option><option value="en-GB">English (UK)</option><option value="yo-NG">Yorùbá</option><option value="ha-NG">Hausa</option><option value="ig-NG">Igbo</option></select></label>
+      <p v-if="!checkingVoice && !supported && !(nativeAvailable && online)">Microphone transcription is unavailable. Type or paste your transcript below.</p>
+      <button v-if="supported || (nativeAvailable && online)" type="button" :disabled="!owner || processing || checkingVoice || recordBusy" @click="listening || microphonePending ? stopListening() : startListening()"><Mic :size="18" aria-hidden="true" />{{ listening ? 'Stop dictation' : microphonePending ? 'Cancel microphone request' : 'Enable microphone and start dictation' }}</button>
+      <p v-if="processing" role="status">{{ audioRecorder ? 'Finalizing recording and transcribing audio…' : 'Finalizing browser transcript…' }} Please wait before editing or saving.</p>
       <p v-if="microphonePending" role="status">Waiting for microphone permission. Dictation has not started.</p>
       <div v-if="listening" class="listening-panel">
         <span class="listening-dot" aria-hidden="true" />
@@ -148,16 +241,18 @@ onUnmounted(() => { mounted = false; generation++; controller?.abort(); stopList
         <time aria-label="Elapsed dictation time">{{ elapsedLabel }}</time>
         <button type="button" @click="stopListening">Stop</button>
       </div>
-      <label>Transcript (editable)<textarea v-model="transcript" maxlength="2000" rows="4" /></label>
-      <button type="button" :disabled="!transcript.trim()" @click="prepareRecord"><FileCheck :size="18" aria-hidden="true" />Prepare record draft</button>
+      <label>Transcript (editable)<textarea v-model="transcript" :disabled="voiceActive || recordBusy" maxlength="2000" rows="4" /></label>
+      <button type="button" :disabled="voiceActive || recordBusy || !transcript.trim()" @click="prepareRecord"><FileCheck :size="18" aria-hidden="true" />Prepare record draft</button>
       <form :aria-busy="recordBusy" @submit.prevent="saveRecord">
-        <h3>Review record draft</h3><p>No money or currency is inferred. Activity is the default. Financial amounts use your farm account's currency.</p>
+        <fieldset :disabled="voiceActive || recordBusy || !owner">
+        <legend>Review record draft</legend><p>No money or currency is inferred. Activity is the default. Financial amounts use your farm account's currency.</p>
         <label>Category<select v-model="record.category"><option value="activity">Activity (no money)</option><option value="income">Income</option><option value="expense">Expense</option></select></label>
         <label>Record title<input v-model="record.title" required maxlength="160"></label>
         <label v-if="record.category !== 'activity'">Amount in account currency<input v-model="record.amount" type="number" required min="0.01" step="0.01" inputmode="decimal"></label>
         <label>Record note<textarea v-model="record.note" maxlength="2000" rows="3" /></label>
         <label class="check"><input v-model="reviewed" type="checkbox" required> I reviewed the category, title, amount and note.</label>
-        <button :disabled="!reviewed || !online || recordBusy || !owner">{{ recordBusy ? 'Saving…' : 'Confirm and save farm record' }}</button>
+        <button :disabled="voiceActive || !reviewed || !online || recordBusy || !owner">{{ recordBusy ? 'Saving…' : 'Confirm and save farm record' }}</button>
+        </fieldset>
       </form>
     </template>
     <template v-else>

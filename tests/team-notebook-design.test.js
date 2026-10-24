@@ -5,6 +5,7 @@ import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compil
 import * as Vue from 'vue'
 import * as icons from 'lucide-vue-next'
 import * as offline from '../app/utils/offline-notes.js'
+import { createChatRecorder } from '../app/utils/chat-recorder.js'
 
 async function component(name, fetcher) {
   const source = await readFile(new URL(`../app/components/${name}.vue`, import.meta.url), 'utf8')
@@ -17,8 +18,9 @@ async function component(name, fetcher) {
   const code = script.content
     .replace(/^import \{([^}]+)\} from 'lucide-vue-next'/m, 'const {$1} = icons')
     .replace(/^import \{([^}]+)\} from '\.\.\/utils\/offline-notes.js'/m, 'const {$1} = offline')
+    .replace(/^import \{ createChatRecorder \} from '\.\.\/utils\/chat-recorder.js'/m, '')
     .replace('export default', 'return')
-  const result = new Function('Vue', 'icons', 'offline', '$fetch', `const {ref, reactive, computed, watch, onMounted, onUnmounted, nextTick} = Vue\n${code}`)(Vue, icons, offline, fetcher)
+  const result = new Function('Vue', 'icons', 'offline', '$fetch', 'createChatRecorder', `const {ref, reactive, computed, watch, onMounted, onUnmounted, nextTick} = Vue\n${code}`)(Vue, icons, offline, fetcher, createChatRecorder)
   return { result, source }
 }
 function mount(component, props) {
@@ -65,7 +67,7 @@ test('notebook compiles and retains offline, deletion and voice review safeguard
   assert.match(source, /v-if="composing" id="note-editor"/)
   assert.match(source, /!reviewed.value \|\| !online.value \|\| !owner.value/)
   assert.match(source, /window.confirm\('Delete this note/)
-  assert.match(source, /generation\+\+; controller\?\.abort\(\); stopListening\(\)/)
+  assert.match(source, /generation\+\+; controller\?\.abort\(\); cancelVoice\(\)/)
   assert.match(source, /watch\(record, .*reviewed.value = false/)
   assert.match(source, /Signing out does not erase saved notes/)
   assert.match(source, /prefers-reduced-motion:reduce/)
