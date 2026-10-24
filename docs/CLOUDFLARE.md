@@ -7,6 +7,8 @@ FarmBuddy runs as a full-stack **Cloudflare Worker**, with **D1** application da
 `wrangler.jsonc` contains the selected account and resource IDs:
 
 - Worker: `farmbuddy`
+- Live site: https://farmbuddy.oladapo.workers.dev
+- Verified deployment version: `3bb3576d-ed82-4ebd-bf4c-c574221f59e1` (October 24, 2026)
 - D1 database: `farmbuddy-db`, binding `FARMBUDDY_DB`
 - Private R2 bucket: `farmbuddy-products`, binding `FARMBUDDY_IMAGES`
 - Static site assets: `ASSETS`, bundled from `.output/public`
@@ -72,9 +74,13 @@ Wrangler uses the existing local OAuth login. CI can use a scoped `CLOUDFLARE_AP
 
 ## Photos and runtime limits
 
-Worker photos use a WASM image codec, not native sharp. Inputs are actually decoded, oriented, resized and re-encoded to remove EXIF/GPS metadata. Workers limit input resolution to 4 megapixels to bound memory. The phone picker compresses larger images before uploading when supported. See `PRODUCT_PHOTOS.md` for current picker behavior and privacy. R2 object data is served only through owner/published-product checks.
+Worker photos use a WASM image codec, not native sharp. The `cloudflare/worker.mjs` entry bounds request bodies before Nitro buffers them, including chunked uploads. API readers also enforce their own limits on Node streams and Nitro's buffered Worker input. Inputs are actually decoded, oriented, resized and re-encoded to remove EXIF/GPS metadata. Workers limit input resolution to 4 megapixels to bound memory. The phone picker compresses larger images before uploading when supported. See `PRODUCT_PHOTOS.md` for current picker behavior and privacy. R2 object data is served only through owner/published-product checks.
 
 ## Verification
+
+The October 24 cutover passed the complete Node regression suite (118 tests plus the native Workers crypto check), Node production build/restart checks, Cloudflare build, and actual local workerd and deployed HTTPS acceptance. Live acceptance covered registration/login and Secure cookies, CSRF rejection, harvest → stock → sale → bookkeeping with replay deduplication, real R2 upload with WASM JPEG orientation/metadata stripping, private/public/unpublished photo visibility, and persisted login data. The two original account objects were compared against the private pre-cutover backup and remained unchanged. Only the exact disposable QA account, its records and its R2 photo were removed. Browser checks confirmed the deployed homepage and login form render without the obsolete setup banner.
+
+Provider secret inspection found no configured nonempty AI, voice or weather keys. These integrations remain unavailable until valid keys are filled and explicitly uploaded. Tests did not call paid inference providers. The intentional corrupt-store regression cases log `Invalid FarmBuddy store` while asserting fail-closed behavior. Those messages are expected during the passing test suite, not evidence that the production database is corrupt.
 
 ```sh
 npm test
@@ -82,6 +88,10 @@ npm run test:database
 npm run build && npm run test:production
 npm run build:cloudflare
 npx wrangler deploy --dry-run
+# With wrangler dev running against disposable local D1/R2:
+npm run test:cloudflare
+node scripts/cloudflare-smoke-cleanup.mjs
+node scripts/cloudflare-smoke-cleanup.mjs --apply
 ```
 
 Node regression tests are isolated from real provider credentials/data. Actual local Worker and deployed HTTPS behavior must also be checked, especially password crypto, D1 persistence, R2 upload/download, phone image limits and public-storefront privacy. In-memory auth/upload/provider rate limits are per-isolate, not a distributed abuse-defense service. Add production account-level monitoring and appropriately scoped Cloudflare rate controls before broad public rollout.

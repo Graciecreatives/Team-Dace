@@ -37,8 +37,9 @@ if (!args.includes('--apply')) {
   await writeFile(`.data/pre-smoke-cleanup-${stamp}.json`, row.snapshot, { mode: 0o600, flag: 'wx' })
   const file = `.data/smoke-cleanup-${stamp}.sql`
   await writeFile(file, sql, { mode: 0o600, flag: 'wx' })
-  const result = JSON.parse(cli('d1', 'execute', 'farmbuddy-db', location, '--json', `--file=${file}`))
-  if (result[0]?.results?.[0]?.revision !== row.revision + 1) throw new Error('Cleanup revision changed, refusing image deletion. Recheck current state.')
+  cli('d1', 'execute', 'farmbuddy-db', location, '--json', `--file=${file}`)
+  const check = JSON.parse(cli('d1', 'execute', 'farmbuddy-db', location, '--json', '--command=SELECT revision FROM app_state WHERE id=1'))
+  if (check[0]?.results?.[0]?.revision !== row.revision + 1) throw new Error('Cleanup revision changed, refusing image deletion. Recheck current state.')
   for (const image of ownImages) {
     if (!/^[a-f0-9]{32}\/[a-f0-9-]{36}\.jpg$/.test(image.key) || image.backend !== 'cloudflare') throw new Error('Unexpected test object metadata')
     cli('r2', 'object', 'delete', `farmbuddy-products/${image.key}`, location)
