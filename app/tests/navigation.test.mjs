@@ -7,6 +7,11 @@ import * as icons from 'lucide-vue-next'
 
 const sources = Object.fromEntries(await Promise.all(['SiteHeader', 'FarmDashboard'].map(async name => [name, await readFile(new URL(`../components/${name}.vue`, import.meta.url), 'utf8')])))
 
+test('marketplace uses the dashboard width while other sections retain their reading limit', () => {
+  assert.match(sources.FarmDashboard, /<main class="mx-auto w-full"/)
+  assert.match(sources.FarmDashboard, /section === 'marketplace' \? 'max-w-none' : 'max-w-\[1440px\]'/)
+})
+
 for (const [name, source] of Object.entries(sources)) {
   test(`${name} script and template compile without a build`, () => {
     const { descriptor, errors } = parse(source)
