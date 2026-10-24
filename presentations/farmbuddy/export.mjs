@@ -76,7 +76,7 @@ async function main() {
     const pdf = await readFile(output);
     if (pdf.subarray(0, 5).toString() !== '%PDF-' || pdf.length < 1000) throw new Error('Chromium did not produce a valid nonempty PDF.');
     const pageCount = [...pdf.toString('latin1').matchAll(/\/Type\s*\/Page\b/g)].length;
-    if (pageCount !== 12) throw new Error(`Expected twelve physical PDF pages, received ${pageCount}. Inspect print layout before sharing.`);
+    if (pageCount !== 10) throw new Error(`Expected ten physical PDF pages, received ${pageCount}. Inspect print layout before sharing.`);
     console.log(`Exported ${output} (${pdf.length.toLocaleString()} bytes, ${pageCount} pages). Print layout comes from deck.css.`);
   } finally { await rm(profile, { recursive: true, force: true }); }
 }

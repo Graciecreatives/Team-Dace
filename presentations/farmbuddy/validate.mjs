@@ -16,17 +16,19 @@ export async function validate() {
   }
   const html = contents.get('index.html') || '';
   const sections = [...html.matchAll(/<section\b[^>]*>/gi)].filter(([tag]) => /\bclass\s*=\s*["'][^"']*\bslide\b[^"']*["']/i.test(tag));
-  if (contents.has('index.html') && sections.length !== 12) fail(`Expected 12 section.slide elements, found ${sections.length}.`);
+  if (contents.has('index.html') && sections.length !== 10) fail(`Expected 10 section.slide elements, found ${sections.length}.`);
   const slideCopy = number => (html.split(`id="slide-${number}"`)[1] || '').split('</section>')[0].replace(/<[^>]+>/g, ' ');
   if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(1))) fail('The cover must clearly introduce AI farming.');
-  if (contents.has('index.html') && !/disease/i.test(slideCopy(9))) fail('The crop-check slide must explicitly mention disease checks.');
-  if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(10))) fail('The assistant slide must clearly identify the AI helper.');
+  if (contents.has('index.html') && !/disease/i.test(slideCopy(8))) fail('The crop-check slide must explicitly mention disease checks.');
+  if (contents.has('index.html') && !/\bAI\b/i.test(slideCopy(9))) fail('The assistant slide must clearly identify the AI helper.');
   if (!/Farm shop[^<]*e-commerce/i.test(slideCopy(1))) fail('Cover must include the farm shop/e-commerce feature.');
   if (!/YOUR AI FARM BUDDY/i.test(html) || /your ai farm helper/i.test(html)) fail('Use Your AI Farm Buddy branding, not helper.');
-  for (const number of [2, 4, 5, 9, 10]) {
+  for (const number of [3, 4, 5, 8, 9]) {
     const slide = (html.split(`id="slide-${number}"`)[1] || '').split('</section>')[0];
     if (!/src="assets\/app-[a-z]+\.png"/.test(slide)) fail(`Slide ${number} must show a real application screenshot.`);
   }
+  if (!/PROBLEM STATEMENT/.test(slideCopy(2))) fail('Slide 2 must state the problem.');
+  if (!/OUR SOLUTION/.test(slideCopy(3))) fail('Slide 3 must explain our solution.');
   const css = contents.get('deck.css') || '';
   if (contents.has('deck.css') && (!/@media\s+print\b/i.test(css) || !/@page\b/i.test(css))) fail('deck.css must define @media print and @page for PDF export.');
   if (contents.has('deck.css') && !/size\s*:\s*1600px\s+900px/i.test(css)) fail('Print @page size must be 1600px 900px.');
