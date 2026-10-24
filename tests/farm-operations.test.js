@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { changeOperations, acceptInvitation, operationsView } from '../server/utils/farm-operations.js'
+import * as operationHelpers from '../app/utils/operations-board.js'
 import { emptyWorkspace, workspaceContext } from '../server/utils/farm-workspace.js'
 
 function fixture() {
@@ -166,33 +167,34 @@ test('operations drafts reset only after a matching confirmed command', async ()
   const vue = await import('vue')
   const source = await readFile('app/components/FarmOperations.vue', 'utf8')
   const { descriptor } = parse(source)
-  const props = vue.reactive({ state: { lastCommandId: 'before', result: null }, busy: false })
+  const props = vue.reactive({ state: { farm: { id: 'farm', role: 'owner' }, currentUserId: 'owner', operations: { tasks: [{ id: 'task', completed: false }] }, inventory: [{ id: 'stock', quantity: 5 }], lastCommandId: 'before', result: null }, busy: false })
+  const confirm = (id, result) => { props.state = { ...props.state, lastCommandId: id, result } }
   const emitted = []
-  const setup = new Function('computed', 'reactive', 'ref', 'watch', 'defineProps', 'defineEmits', descriptor.scriptSetup.content.replace(/import .* from 'vue'/, '') + '\nreturn { invite, accept, task, consume, submit }')
-  const forms = setup(vue.computed, vue.reactive, vue.ref, vue.watch, () => props, () => (...args) => emitted.push(args))
+  const setup = new Function(...Object.keys(operationHelpers), 'nextTick', 'computed', 'reactive', 'ref', 'watch', 'defineProps', 'defineEmits', descriptor.scriptSetup.content.replace(/^import .*$/gm, '') + '\nreturn { invite, accept, task, consume, submit }')
+  const forms = setup(...Object.values(operationHelpers), vue.nextTick, vue.computed, vue.reactive, vue.ref, vue.watch, () => props, () => (...args) => emitted.push(args))
   forms.task.title = 'Retain until confirmed'
   forms.submit('tasks.create', forms.task)
   await vue.nextTick()
   assert.equal(forms.task.title, 'Retain until confirmed')
-  props.state = { lastCommandId: 'unrelated', result: { action: 'team.invite' } }
+  confirm('unrelated', { action: 'team.invite' })
   await vue.nextTick()
   assert.equal(forms.task.title, 'Retain until confirmed')
-  props.state = { lastCommandId: 'confirmed', result: { action: 'tasks.create' } }
+  confirm('confirmed', { action: 'tasks.create', taskId: 'created' })
   await vue.nextTick()
   assert.equal(forms.task.title, '')
   forms.consume.task = { inventoryId: 'stock', quantity: 2 }
   forms.submit('tasks.consume', { id: 'task' })
-  props.state = { lastCommandId: 'consumed', result: { action: 'tasks.consume' } }
+  confirm('consumed', { action: 'tasks.consume', taskId: 'task' })
   await vue.nextTick()
   assert.equal(forms.consume.task, undefined)
   forms.accept.token = 'private-token'
   forms.submit('team.accept', forms.accept)
-  props.state = { lastCommandId: 'joined', result: { action: 'team.accept' } }
+  confirm('joined', { action: 'team.accept', farmId: 'farm' })
   await vue.nextTick()
   assert.equal(forms.accept.token, '')
   forms.invite.email = 'person@example.test'
   forms.submit('team.invite', forms.invite)
-  props.state = { lastCommandId: 'invited', result: { action: 'team.invite', token: 'one-time' } }
+  confirm('invited', { action: 'team.invite', token: 'one-time' })
   await vue.nextTick()
   assert.equal(forms.invite.email, '')
   assert.equal(props.state.result.token, 'one-time')
