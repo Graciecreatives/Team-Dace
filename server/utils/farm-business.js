@@ -40,6 +40,20 @@ function order(ctx, id) {
   if (!row) fail(404, 'Order unavailable')
   return row
 }
+function confirmSale(data, ctx, row) {
+  const stock = findOwnedStock(data, ctx, row.inventoryId)
+  if (stock.quantity < row.quantity) fail(409, 'Insufficient stock')
+  limit(ctx.workspace.movements)
+  const move = movement(ctx, { type: 'sale', inventoryId: stock.id, quantity: -row.quantity, seasonId: row.seasonId, orderId: row.id })
+  // record checks its history bound before mutating. No validation follows it,
+  // so direct domain callers also retain their state on a rejected sale.
+  const entry = record(data, ctx, { title: `Cash sale ${row.invoiceId}`, category: 'income', amount: row.amountMinor / 100, note: row.customer, seasonId: row.seasonId, sourceId: row.id })
+  entry.date = row.date; entry.amountMinor = row.amountMinor
+  stock.quantity = Number((stock.quantity - row.quantity).toFixed(6))
+  touchStock(stock)
+  ctx.workspace.movements.push(move)
+  row.status = 'confirmed'; row.confirmedAt = new Date().toISOString()
+}
 export function changeBusiness(data, ctx, input) {
   need(ctx, 'business.write')
   const ws = ctx.workspace
@@ -59,7 +73,7 @@ export function changeBusiness(data, ctx, input) {
     ws.events.push(event); ws.movements.push(move)
     return { id: event.id }
   }
-  if (input.action === 'orders.create') {
+  if (input.action === 'orders.create' || input.action === 'orders.record') {
     season(ctx, input.seasonId)
     const stock = findOwnedStock(data, ctx, input.inventoryId)
     const q = quantity(input.quantity), unitPriceMinor = moneyMinor(input.unitPrice)
@@ -76,6 +90,9 @@ export function changeBusiness(data, ctx, input) {
     limit(ws.orders)
     const id = randomUUID()
     const row = { id, sellerName, currency: 'NGN', invoiceId: `INV-${id.toUpperCase()}`, seasonId: input.seasonId, inventoryId: stock.id, itemName: stock.name, unit: stock.unit, quantity: q, unitPriceMinor, amountMinor, customer, date: when, status: 'draft', delivery: { status: 'pending', reference: '' }, createdAt: new Date().toISOString(), ...(input.productId ? { productId: input.productId } : {}) }
+    // Recording is a manual assertion that this cash sale is already paid,
+    // not a request to collect payment. Persist all effects in the root transaction.
+    if (input.action === 'orders.record') confirmSale(data, ctx, row)
     ws.orders.push(row)
     return { id }
   }
@@ -83,17 +100,7 @@ export function changeBusiness(data, ctx, input) {
     const row = order(ctx, input.id)
     if (row.status === 'confirmed') return { id: row.id }
     if (row.status !== 'draft') fail(409, 'Only draft orders can be confirmed')
-    const stock = findOwnedStock(data, ctx, row.inventoryId)
-    if (!Number.isFinite(stock.quantity) || stock.quantity < row.quantity) fail(409, 'Insufficient stock')
-    limit(ws.movements)
-    const move = movement(ctx, { type: 'sale', inventoryId: stock.id, quantity: -row.quantity, seasonId: row.seasonId, orderId: row.id })
-    // All validation precedes mutations. Root persists the enclosing command as one transaction.
-    const entry = record(data, ctx, { title: `Cash sale ${row.invoiceId}`, category: 'income', amount: row.amountMinor / 100, note: row.customer, seasonId: row.seasonId, sourceId: row.id })
-    if (entry) { entry.date = row.date; entry.amountMinor = row.amountMinor }
-    stock.quantity = Number((stock.quantity - row.quantity).toFixed(6))
-    touchStock(stock)
-    ws.movements.push(move)
-    row.status = 'confirmed'; row.confirmedAt = new Date().toISOString()
+    confirmSale(data, ctx, row)
     return { id: row.id }
   }
   if (input.action === 'orders.deliver') {

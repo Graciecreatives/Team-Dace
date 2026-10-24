@@ -79,7 +79,7 @@ test('failed refresh retains editor and distinguishes persisted changes from sav
 
 test('assistant modes keep review, provider consent, status and cleanup safeguards', () => {
   const source = sources.FarmAssistant
-  for (const label of ['Ask a question', 'Discuss a photo', 'Speak, review, then save', 'Connection details', 'Stop dictation']) assert.ok(source.includes(label))
+  for (const label of ['Ask a question', 'Discuss a photo', 'Voice to farm record', 'About', 'Stop dictation']) assert.ok(source.includes(label))
   assert.match(source, /photoMode\.value = true/)
   assert.match(source, /status\.value\?\.chat && status\.value\?\.photo/)
   assert.match(source, /if \(!status\.value\?\.chat \|\| busy\.value \|\| speaking\.value \|\| dictationActive\.value/)
@@ -90,6 +90,6 @@ test('assistant modes keep review, provider consent, status and cleanup safeguar
   assert.match(source, /generation !== sessionGeneration/)
   assert.match(source, /mode="voice" @records-changed="emit\('records-changed'\)"/)
   assert.match(source, /releaseDictation\(\)\s+clearAudio\(\)/)
-  assert.match(source, /not guaranteed by this check/)
+  assert.match(source, /About AI guidance and privacy/)
   assert.match(sources.FarmSettings, /<FarmServiceStatus :user-id="user.id \|\| ''"/)
 })

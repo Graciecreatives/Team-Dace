@@ -17,6 +17,20 @@ function harness(fetcher) {
   return { controller, user, navigator, values, storage: window.localStorage, offline: () => { navigator.onLine = false; listeners.get('offline')() }, online: () => { navigator.onLine = true; listeners.get('online')() }, stop: () => { unmounted.forEach(fn => fn()); scope.stop() } }
 }
 const view = id => ({ farm: { id, role: 'owner' }, farms: [{ id, name: id, role: 'owner' }], planning: { seasons: [], plots: [], events: [] }, operations: { tasks: [] }, inventory: [] })
+test('paid sale preserves the editor command ID through the successful receipt', async () => {
+  const id = webcrypto.randomUUID(), sent = []
+  const h = harness(async (url, options) => {
+    if (options.method === 'POST') { sent.push(options.body); return { ...view('owner'), lastCommandId: options.body.commandId, result: { action: 'orders.record', id: 'sale' } } }
+    return view('owner')
+  })
+  try {
+    await tick()
+    await h.controller.command({ action: 'orders.record', commandId: id, quantity: 2, unitPrice: 100 })
+    assert.equal(sent[0].commandId, id)
+    assert.equal(h.controller.state.value.lastCommandId, id)
+    assert.equal(h.controller.state.value.result.action, 'orders.record')
+  } finally { h.stop() }
+})
 test('quota failures never announce an offline draft as saved or silently discard it', async () => {
   const h = harness(async () => view('owner'))
   try {

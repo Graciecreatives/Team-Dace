@@ -72,7 +72,7 @@ export function useFarmWorkspace(user) {
     if (busy.value || !identity.value) return
     error.value = ''; message.value = ''
     if (uncertain.value) { error.value = 'Retry the unconfirmed request before making another change.'; return }
-    const input = { ...payload, farmId: farmId.value || identity.value, commandId: newCommandId(crypto) }
+    const input = { ...payload, farmId: farmId.value || identity.value, commandId: payload.commandId || newCommandId(crypto) }
     const canQueue = enabled.value && offlineActions.includes(input.action)
     if (!online.value && !canQueue) { error.value = 'This action needs a connection. Enable device drafts for offline observations, harvests and task updates.'; return }
     if (canQueue) {

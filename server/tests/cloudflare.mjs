@@ -75,6 +75,18 @@ assert.equal(confirmed.inventory.find(row => row.id === inventory.id).quantity, 
 assert.equal(confirmed.business.reports.seasons[0].incomeMinor, 10200)
 const replay = (await call('/api/management', 'POST', confirmation)).value
 assert.equal(replay.inventory.find(row => row.id === inventory.id).quantity, 6)
+const directCommand = { action: 'orders.record', farmId: ownerId, commandId: randomUUID(), seasonId, inventoryId: inventory.id, quantity: 1, unitPrice: 10, customer: 'Validation walk-in buyer', date: '2026-10-24' }
+const direct = (await call('/api/management', 'POST', directCommand)).value
+assert.equal(direct.inventory.find(row => row.id === inventory.id).quantity, 5)
+assert.equal(direct.business.reports.seasons[0].incomeMinor, 11200)
+const paidOrder = direct.business.orders.find(row => row.customer === directCommand.customer)
+assert.equal(paidOrder.status, 'confirmed')
+assert.equal(paidOrder.amountMinor, 1000)
+assert.ok(paidOrder.invoiceId)
+const directReplay = (await call('/api/management', 'POST', directCommand)).value
+assert.equal(directReplay.inventory.find(row => row.id === inventory.id).quantity, 5)
+assert.equal(directReplay.business.reports.seasons[0].incomeMinor, 11200)
+assert.equal(directReplay.business.orders.filter(row => row.customer === directCommand.customer).length, 1)
 const bytes = await sharp({ create: { width: 64, height: 32, channels: 3, background: '#076a37' } }).withMetadata({ orientation: 6 }).jpeg().toBuffer()
 const upload = await fetch(base + '/api/product-images', { method: 'POST', headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'image/jpeg' }, body: bytes })
 assert.equal(upload.status, 200, await upload.clone().text())
@@ -113,7 +125,7 @@ assert.equal((await fetch(base + '/api/auth/me', { headers: { Cookie: cookie } }
 const loggedIn = await call('/api/auth/login', 'POST', { email, password }, false)
 cookie = loggedIn.response.headers.get('set-cookie')?.split(';')[0]
 assert.equal((await call('/api/auth/me')).value.user.id, ownerId)
-assert.equal((await call('/api/management')).value.inventory.find(row => row.id === inventory.id).quantity, 6)
+assert.equal((await call('/api/management')).value.inventory.find(row => row.id === inventory.id).quantity, 5)
 const forbidden = await fetch(base + '/api/farm/records', { method: 'POST', headers: { Cookie: cookie, Origin: 'https://attacker.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Denied', category: 'activity' }) })
 assert.equal(forbidden.status, 403)
 await call('/api/auth/logout', 'POST')

@@ -10,6 +10,7 @@ import * as Vue from 'vue'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import { changeBusiness, businessView, moneyMinor } from '../server/utils/farm-business.js'
 import { emptyWorkspace } from '../server/utils/farm-workspace.js'
+import { newCommandId } from '../app/utils/offline-workspace.js'
 
 function fixture() {
   const workspace = emptyWorkspace('owner')
@@ -108,6 +109,10 @@ test('business Vue component compiles script, template and print styles', async 
   assert.ok(source.includes('Seller: {{ invoice.sellerName'))
   assert.ok(source.includes('Nigerian naira (NGN)'))
   assert.ok(source.includes('aria-label="Business record type"'))
+  for (const label of ['Record paid sale', 'Save unpaid order', 'Decrease sale quantity', 'Increase sale quantity', 'Walk-in customer', 'Choose product', 'Sale details', 'Total paid']) assert.ok(source.includes(label), label)
+  assert.ok(source.includes("send('orders.record', sale)"))
+  assert.ok(source.includes('prefers-reduced-motion:reduce'))
+  assert.ok(!source.includes('Harvest to cash workflow'), 'text-heavy workflow has been replaced with action tiles')
   for (const name of ['harvest', 'sale', 'expense']) assert.ok(source.includes(`<template v-if="activeTab === '${name}'">`))
   assert.ok(!source.includes('farm currency'))
   assert.deepEqual(errors, [])
@@ -124,7 +129,7 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     .replace(/^import \{([^}]+)\} from 'vue'\n/m, 'const {$1} = Vue\n')
     .replace(/^import .* from .*\n/gm, '')
     .replace('export default', 'return')
-  const component = new Function('Vue', 'FbTabs', 'FbButton', 'FbPageHeader', 'FbDialog', 'Sprout', 'Package', 'Receipt', 'Banknote', 'Plus', 'Truck', 'Printer', compiled)(Vue, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+  const component = new Function('Vue', 'FbTabs', 'FbButton', 'FbPageHeader', 'FbDialog', 'Sprout', 'Package', 'Receipt', 'Banknote', 'Plus', 'Truck', 'Printer', 'newCommandId', compiled)(Vue, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, newCommandId)
   // Mount with Vue's real renderer so watcher scheduling and unmount disposal
   // are exercised, rather than invoking watchers outside a component lifecycle.
   const renderer = Vue.createRenderer({
@@ -241,6 +246,38 @@ test('business mounted lifecycle preserves in-flight edits and scopes successful
     props.state = { lastCommandId: 'confirmed-5', result: { action: 'orders.deliver', id: 'other' } }
     await Vue.nextTick()
     assert.equal(drafts.delivery.other.reference, 'Edited while saving')
+    const saleState = { planning: { seasons: [{ id: 'season', name: 'Maize' }] }, inventory: [{ id: 'stock', name: 'Maize', quantity: 10, unit: 'kg' }] }
+    props.state = saleState
+    await Vue.nextTick()
+    await drafts.openEditor('sale')
+    assert.equal(drafts.sale.seasonId, 'season', 'single season is automatic')
+    Object.assign(drafts.sale, { inventoryId: 'stock', quantity: '1.5', unitPrice: '10.01', customer: '' })
+    assert.equal(drafts.saleTotal.value, 1502, 'preview uses decimal half-up rounding')
+    drafts.sale.unitPrice = '0.29'
+    drafts.sale.quantity = '1'
+    assert.equal(drafts.saleTotal.value, 29)
+    drafts.stepQuantity(1)
+    assert.equal(drafts.sale.quantity, '2', 'stepper updates editable quantity')
+    drafts.sale.unitPrice = '1.001'
+    assert.equal(drafts.saleTotal.value, null, 'invalid money precision never shows a payable total')
+    drafts.sale.unitPrice = '10.01'
+    drafts.sale.quantity = '11'
+    const beforeInvalidSale = commands.length
+    drafts.send('orders.record', drafts.sale)
+    assert.equal(commands.length, beforeInvalidSale, 'paid sales cannot exceed available stock')
+    drafts.sale.quantity = '1.5'
+    drafts.send('orders.record', drafts.sale)
+    const paidSale = commands.at(-1)
+    assert.equal(paidSale.customer, 'Walk-in customer')
+    assert.equal(paidSale.action, 'orders.record')
+    assert.ok(paidSale.commandId)
+    props.state = { ...saleState, lastCommandId: 'unrelated-paid-sale', result: { action: 'orders.record' } }
+    await Vue.nextTick()
+    assert.equal(drafts.sale.quantity, '1.5', 'same-action receipt cannot clear another command draft')
+    props.state = { ...saleState, lastCommandId: paidSale.commandId, result: { action: 'orders.record', id: 'paid-order' } }
+    await Vue.nextTick()
+    assert.equal(drafts.sale.quantity, '', 'exact paid-sale receipt clears its unchanged draft')
+    assert.equal(drafts.editorOpen.value, false)
     drafts.send('harvest.create', drafts.harvest)
     props.state = { farm: { id: 'new-farm' } }
     await Vue.nextTick()

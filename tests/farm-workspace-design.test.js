@@ -26,7 +26,7 @@ test('production and business expose in-place choices, finite motion and native 
   const business = await readFile('app/components/FarmBusiness.vue', 'utf8')
   assert.match(business, /seasons.length <= 6/)
   assert.match(business, /stock.length <= 6/)
-  assert.match(business, /<label v-else>Season<select/)
+  assert.match(business, /<label v-else-if="activeTab !== 'sale' && seasons.length > 6">Season<select/)
   assert.match(business, /<label v-else>Stock item<select/)
   assert.match(business, /v-if="!detailsOpen\[activeTab\]"/)
 })
