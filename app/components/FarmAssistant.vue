@@ -47,7 +47,7 @@ const starters = [
   { icon: Sprout, label: 'Plan my next steps', task: 'chat', text: 'Help me plan my next farm tasks. I am growing or raising ...' }
 ]
 function fillPrompt(starter) {
-  if (busy.value || listening.value) return
+  if (busy.value || dictationActive.value) return
   task.value = starter.task
   question.value = starter.text
   nextTick(() => draft.value?.focus())
@@ -60,6 +60,11 @@ watch(() => messages.value[messages.value.length - 1], scrollToLatest)
 watch(busy, scrollToLatest)
 const dictationSupported = ref(false)
 const listening = ref(false)
+const dictationPending = ref(false)
+const dictationStopping = ref(false)
+const dictationActive = computed(() => listening.value || dictationPending.value || dictationStopping.value)
+const dictationSeconds = ref(0)
+const dictationTime = computed(() => `0:${String(dictationSeconds.value).padStart(2, '0')}`)
 const dictationLanguage = ref('en-NG')
 const dictationNotice = ref('')
 const dictationLanguages = [
@@ -73,6 +78,7 @@ const dictationLanguages = [
 ]
 let recognition
 let dictationTimer
+let dictationClock
 let disposed = false
 let controller
 let readGeneration = 0
@@ -81,21 +87,29 @@ function releaseDictation() {
   const active = recognition
   recognition = undefined
   clearTimeout(dictationTimer)
+  clearInterval(dictationClock)
   listening.value = false
+  dictationPending.value = false
+  dictationStopping.value = false
+  dictationSeconds.value = 0
   if (active) {
-    active.onresult = active.onerror = active.onend = null
+    active.onstart = active.onresult = active.onerror = active.onend = null
     try { active.abort() } catch { /* Already ended. */ }
   }
 }
 function stopDictation() {
-  if (!recognition) return
+  if (!recognition || dictationStopping.value) return
+  if (dictationPending.value) { releaseDictation(); dictationNotice.value = 'Dictation cancelled. You can still type your question.'; return }
+  dictationStopping.value = true
+  listening.value = false
+  clearInterval(dictationClock)
   dictationNotice.value = 'Finishing dictation. Review and edit the text before pressing Send.'
   try { recognition.stop() } catch { releaseDictation() }
   clearTimeout(dictationTimer)
   if (recognition) dictationTimer = setTimeout(releaseDictation, 3000)
 }
 function startDictation() {
-  if (disposed || listening.value || busy.value || speaking.value || !dictationSupported.value) return
+  if (disposed || dictationActive.value || busy.value || speaking.value || !dictationSupported.value) return
   if (question.value.length >= 4000) { dictationNotice.value = 'The question is full. Shorten it before dictating more.'; return }
   releaseDictation()
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -107,6 +121,16 @@ function startDictation() {
     active.continuous = true
     active.interimResults = false
     active.maxAlternatives = 1
+    active.onstart = () => {
+      if (disposed || generation !== sessionGeneration || recognition !== active || dictationStopping.value || listening.value) return
+      clearTimeout(dictationTimer)
+      dictationPending.value = false
+      listening.value = true
+      const started = Date.now()
+      dictationClock = setInterval(() => { dictationSeconds.value = Math.min(60, Math.floor((Date.now() - started) / 1000)) }, 250)
+      dictationNotice.value = 'Listening. Speech is added to your editable question, never sent automatically.'
+      dictationTimer = setTimeout(stopDictation, 60000)
+    }
     active.onresult = event => {
       if (disposed || generation !== sessionGeneration || recognition !== active) return
       for (let index = event.resultIndex; index < event.results.length; index++) {
@@ -130,10 +154,10 @@ function startDictation() {
       releaseDictation()
       dictationNotice.value = 'Dictation stopped. Review and edit your question, then press Send when ready.'
     }
-    listening.value = true
-    dictationNotice.value = 'Listening. Speech is added to your editable question, never sent automatically.'
+    dictationPending.value = true
+    dictationNotice.value = 'Waiting for microphone permission. Allow access in your browser or cancel.'
+    dictationTimer = setTimeout(() => { releaseDictation(); dictationNotice.value = 'Microphone did not start. Please try again or type your question.' }, 15000)
     active.start()
-    dictationTimer = setTimeout(stopDictation, 60000)
   } catch {
     releaseDictation()
     dictationNotice.value = 'Could not start microphone dictation. Please type your question instead.'
@@ -153,7 +177,7 @@ async function chooseImage(event) {
   reader.readAsDataURL(file)
 }
 async function send() {
-  if (!status.value?.chat || busy.value || speaking.value || listening.value || !question.value.trim() || (image.value && (!consent.value || !status.value?.photo))) return
+  if (!status.value?.chat || busy.value || speaking.value || dictationActive.value || !question.value.trim() || (image.value && (!consent.value || !status.value?.photo))) return
   busy.value = true
   error.value = ''
   controller = new AbortController()
@@ -170,7 +194,7 @@ async function send() {
   finally { if (generation === sessionGeneration) busy.value = false }
 }
 async function speak(message) {
-  if (busy.value || speaking.value || listening.value) return
+  if (busy.value || speaking.value || dictationActive.value) return
   speaking.value = true
   error.value = ''
   clearAudio()
@@ -210,7 +234,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <template v-if="status">
           <p v-if="!status.chat"><strong>AI chat and photo analysis need a server connection.</strong> The site owner must add <code>OPENROUTER_API_KEY</code> to the server’s <code>.env</code> file and restart the app. OpenRouter handles text and photo requests. Use a namespaced <code>OPENROUTER_MODEL</code> (or <code>FARMBUDDY_AI_MODEL</code>), default <code>openai/gpt-4.1-mini</code>. Your question stays here until connected.</p>
           <p v-if="status.chat && !status.photo" class="mt-2">Photo support is not verified for the configured model. Written chat is available. The site owner can select <code>openai/gpt-4.1-mini</code> for photos.</p>
-          <p v-if="!status.voice" class="mt-2">Spoken AI replies need <code>YARNGPT_API_KEY</code>. Browser dictation is separate and depends on your browser and microphone permission.</p>
+          <p v-if="!status.voice" class="mt-2">Spoken AI replies need <code>YARNGPT_API_KEY</code>. YarnGPT uses its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>. Browser dictation is separate and depends on your browser and microphone permission.</p>
         </template>
         <p class="mt-2">Never enter or share API keys in the chat. Phone microphone access may require HTTPS.</p>
         <button type="button" class="mt-3 rounded-lg border border-[#cad7c3] px-3 py-2 font-semibold" :disabled="checkingStatus" @click="refreshStatus">{{ checkingStatus ? 'Checking connection…' : 'Check connection again' }}</button>
@@ -222,7 +246,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
         <h3>What is happening on<br class="desktop-break"> your farm today?</h3>
         <p class="welcome-copy">From a change in your crops to an animal that needs care,<br class="desktop-break"> let’s work through your next steps together.</p>
         <div class="starter-prompts" aria-label="Question starters">
-          <button v-for="starter in starters" :key="starter.task" type="button" :disabled="busy || listening" @click="fillPrompt(starter)"><component :is="starter.icon" :size="17" />{{ starter.label }}<ArrowUpRight :size="14" /></button>
+          <button v-for="starter in starters" :key="starter.task" type="button" :disabled="busy || dictationActive" @click="fillPrompt(starter)"><component :is="starter.icon" :size="17" />{{ starter.label }}<ArrowUpRight :size="14" /></button>
         </div>
       </div>
 
@@ -231,7 +255,7 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
           <p class="message-author">{{ message.role === 'user' ? 'You' : `FarmBuddyAI · ${message.model}` }}</p>
           <p class="message-content">{{ message.content }}</p>
           <p v-if="message.photo" class="message-note">Photo shared with this question.</p>
-          <button v-if="message.role === 'assistant' && status?.voice" type="button" class="read-aloud" :disabled="speaking || busy || listening" @click="speak(message)"><Volume2 :size="15" />Read aloud with YarnGPT{{ message.content.length > 4000 ? ' (first 4,000 characters)' : '' }}</button>
+          <button v-if="message.role === 'assistant' && status?.voice" type="button" class="read-aloud" :disabled="speaking || busy || dictationActive" @click="speak(message)"><Volume2 :size="15" />Read aloud with YarnGPT{{ message.content.length > 4000 ? ' (first 4,000 characters)' : '' }}</button>
         </li>
         <li v-if="busy" class="message assistant pending" role="status">Looking into your question…</li>
       </ol>
@@ -246,18 +270,25 @@ onBeforeUnmount(() => { disposed = true; statusController?.abort(); clearSession
             <div class="input-tools">
               <input id="assistant-photo" ref="picker" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy || !status?.chat || !status?.photo" @change="chooseImage">
               <button type="button" class="icon-button" aria-label="Attach a photo, JPEG, PNG or WebP up to 3 MB" title="Attach photo · up to 3 MB" :disabled="busy || !status?.chat || !status?.photo" @click="picker?.click()"><Camera :size="20" /></button>
-              <button type="button" class="icon-button" :class="{ recording: listening }" :aria-label="listening ? 'Stop dictation' : 'Start dictation'" :aria-pressed="listening" aria-describedby="assistant-dictation-privacy" :disabled="!dictationSupported || (!listening && (busy || speaking))" @click="listening ? stopDictation() : startDictation()"><Mic :size="20" /></button>
-              <template v-if="dictationSupported"><label for="assistant-dictation-language" class="sr-only">Dictation language</label><select id="assistant-dictation-language" v-model="dictationLanguage" :disabled="listening || busy || speaking"><option v-for="language in dictationLanguages" :key="language.code" :value="language.code">{{ language.label }}</option></select></template>
+              <button type="button" class="icon-button" :class="{ recording: listening }" :aria-label="dictationActive ? 'Stop dictation' : 'Start dictation'" :aria-pressed="dictationActive" aria-describedby="assistant-dictation-privacy" :disabled="!dictationSupported || (!dictationActive && (busy || speaking))" @click="dictationActive ? stopDictation() : startDictation()"><Mic :size="20" /></button>
+              <template v-if="dictationSupported"><label for="assistant-dictation-language" class="sr-only">Dictation language</label><select id="assistant-dictation-language" v-model="dictationLanguage" :disabled="dictationActive || busy || speaking"><option v-for="language in dictationLanguages" :key="language.code" :value="language.code">{{ language.label }}</option></select></template>
               <span v-else class="typing-fallback">Type your question</span>
             </div>
-            <button type="submit" class="send-button" :aria-label="image ? 'Send question and photo' : 'Send question'" :disabled="busy || speaking || listening || !status?.chat || !question.trim() || Boolean(image && (!consent || !status?.photo))"><span>Send</span><ArrowUpRight :size="19" /></button>
+            <button type="submit" class="send-button" :aria-label="image ? 'Send question and photo' : 'Send question'" :disabled="busy || speaking || dictationActive || !status?.chat || !question.trim() || Boolean(image && (!consent || !status?.photo))"><span>Send</span><ArrowUpRight :size="19" /></button>
           </div>
         </form>
+        <div v-if="dictationActive" class="dictation-session" :class="{ 'is-listening': listening }">
+          <span v-if="listening" class="dictation-bars" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+          <span v-else class="dictation-pending-dot" aria-hidden="true" />
+          <strong>{{ dictationPending ? 'Microphone permission pending' : dictationStopping ? 'Finishing dictation…' : 'Listening to your question' }}</strong>
+          <span v-if="listening || dictationStopping" class="dictation-time" aria-label="Elapsed dictation time">{{ dictationTime }}</span>
+          <button type="button" :disabled="dictationStopping" @click="stopDictation">{{ dictationPending ? 'Cancel' : dictationStopping ? 'Stopping…' : 'Stop dictation' }}</button>
+        </div>
         <p v-if="dictationNotice" role="status" class="inline-notice">{{ dictationNotice }}</p>
         <p v-if="error" role="alert" class="inline-notice error-notice">{{ error }}</p>
         <p v-if="busy || speaking" role="status" class="inline-notice">{{ busy ? 'Asking FarmBuddyAI…' : 'Preparing YarnGPT voice audio…' }}</p>
         <audio v-if="audioUrl" :src="audioUrl" controls aria-label="YarnGPT spoken answer" @error="error = 'Audio could not be played. Please use the written answer.'" />
-        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Read aloud shares answer text with YarnGPT.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
+        <details class="guidance-details"><summary>AI guidance, not a diagnosis · Safety &amp; privacy</summary><div><p>Photos can be misleading. For urgent animal distress or rapid disease spread, contact a qualified local expert immediately.</p><p>Conversation stays in this page’s memory only. Sending a question shares your farm profile and selected photo with OpenRouter and its routed model provider. Read aloud shares answer text with YarnGPT, using its default voice unless the site owner sets optional <code>YARNGPT_VOICE</code>.</p><p id="assistant-dictation-privacy">Optional dictation uses your browser’s speech service, which may send audio to its provider and require internet. Language availability varies. Nothing is recorded until you press Start dictation. Review and edit the text, then press Send yourself. {{ !dictationSupported ? 'Browser dictation is not available here. Please type instead.' : '' }}</p><p>Optional photos: JPEG, PNG or WebP, maximum 3 MB. A photo is shared only with your consent when you press Send.</p></div></details>
       </div>
     </div>
   </section>
@@ -383,4 +414,19 @@ audio { width: 100%; height: 38px; margin-top: 10px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }
+.dictation-session { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; padding: 12px 14px; border: 1px solid #cdd7bf; border-radius: 12px; background: #f5f7ee; color: #36513a; font-size: 12px; }
+.dictation-session.is-listening { background: #edf6e7; border-color: #91b579; }
+.dictation-session strong { flex: 1; min-width: 125px; }
+.dictation-session button { padding: 7px 11px; border-radius: 8px; background: #365b38; color: white; font-weight: 700; }
+.dictation-session button:disabled { opacity: .6; }
+.dictation-time { font-variant-numeric: tabular-nums; font-weight: 700; }
+.dictation-pending-dot { width: 9px; height: 9px; border-radius: 50%; background: #c39427; }
+.dictation-bars { display: flex; align-items: center; gap: 3px; height: 24px; }
+.dictation-bars i { width: 4px; height: 18px; border-radius: 3px; background: #548345; animation: assistant-listening .8s ease-in-out infinite alternate; }
+.dictation-bars i:nth-child(2) { animation-delay: -.3s; }
+.dictation-bars i:nth-child(3) { animation-delay: -.6s; }
+.dictation-bars i:nth-child(4) { animation-delay: -.2s; }
+.dictation-bars i:nth-child(5) { animation-delay: -.5s; }
+@keyframes assistant-listening { from { transform: scaleY(.3); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .dictation-bars i { animation: none; } .dictation-bars i:nth-child(even) { height: 10px; } }
 </style>

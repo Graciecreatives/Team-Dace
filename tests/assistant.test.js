@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -10,6 +12,68 @@ import { assistantChat, assistantSpeak, assistantStatus, validateChat, assistant
 
 const input = { task: 'chat', messages: [{ role: 'user', content: 'How should I inspect my maize?' }] }
 const errorStatus = status => error => error.statusCode === status
+
+test('assistant dictation separates permission from capture and cleans up timers', () => {
+  const source = readFileSync(new URL('../app/components/FarmAssistant.vue', import.meta.url), 'utf8')
+  const block = source.slice(source.indexOf('const dictationSupported ='), source.indexOf('function clearAudio()'))
+  const timers = new Map()
+  const intervals = new Map()
+  let id = 0
+  let now = 0
+  let active
+  class Recognition {
+    constructor() { active = this }
+    start() {}
+    stop() { this.stopped = true }
+    abort() { this.aborted = true }
+  }
+  const ref = value => ({ value })
+  const state = runInNewContext(`${block}\ndictationSupported.value = true; ({ startDictation, stopDictation, releaseDictation, listening, dictationPending, dictationStopping, dictationSeconds, dictationTime, dictationActive, dictationNotice })`, {
+    ref, computed: getter => ({ get value() { return getter() } }),
+    window: { SpeechRecognition: Recognition }, question: ref(''), busy: ref(false), speaking: ref(false),
+    Date: { now: () => now },
+    setTimeout: (callback, delay) => { timers.set(++id, { callback, delay }); return id },
+    clearTimeout: key => timers.delete(key),
+    setInterval: callback => { intervals.set(++id, callback); return id },
+    clearInterval: key => intervals.delete(key)
+  })
+  state.startDictation()
+  assert.equal(state.dictationPending.value, true)
+  assert.equal(state.listening.value, false)
+  assert.equal(intervals.size, 0)
+  state.stopDictation()
+  assert.equal(active.aborted, true)
+  assert.equal(state.dictationActive.value, false)
+  assert.equal(timers.size, 0)
+  state.startDictation()
+  active.onstart()
+  assert.equal(state.listening.value, true)
+  assert.equal(state.dictationPending.value, false)
+  now = 3500
+  for (const tick of intervals.values()) tick()
+  assert.equal(state.dictationTime.value, '0:03')
+  state.stopDictation()
+  assert.equal(active.stopped, true)
+  assert.equal(state.dictationStopping.value, true)
+  assert.equal(state.listening.value, false)
+  assert.equal(intervals.size, 0)
+  active.onend()
+  assert.equal(state.dictationActive.value, false)
+  assert.equal(timers.size, 0)
+  state.startDictation()
+  active.onerror({ error: 'not-allowed' })
+  assert.match(state.dictationNotice.value, /permission was denied/)
+  assert.equal(state.dictationActive.value, false)
+  state.startDictation()
+  active.onstart()
+  state.releaseDictation()
+  assert.equal(active.onstart, null)
+  assert.equal(active.onresult, null)
+  assert.equal(active.aborted, true)
+  assert.equal(intervals.size, 0)
+  assert.equal(timers.size, 0)
+  assert.match(source, /prefers-reduced-motion: reduce/)
+})
 
 test('assistant validation and mocked primary provider boundaries, no live calls', async t => {
   const keys = ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_MODEL', 'FARMBUDDY_AI_MODEL', 'YARNGPT_API_KEY', 'YARNGPT_VOICE']
@@ -98,6 +162,15 @@ test('assistant validation and mocked primary provider boundaries, no live calls
     return new Response(new Uint8Array([73, 68, 51]), { headers: { 'Content-Type': 'audio/mpeg' } })
   })
   assert.equal(audio.length, 3)
+  process.env.YARNGPT_API_KEY = '  trimmed-voice-key  '
+  for (const voice of ['   ', '  example-voice  ']) {
+    process.env.YARNGPT_VOICE = voice
+    await assistantSpeak({ text: '  Hello  ' }, async (_url, options) => {
+      assert.equal(options.headers.Authorization, 'Bearer trimmed-voice-key')
+      assert.deepEqual(JSON.parse(options.body), { text: 'Hello', output_format: 'mp3', ...(voice.trim() ? { voice: 'example-voice' } : {}) })
+      return new Response(new Uint8Array([73, 68, 51]), { headers: { 'Content-Type': 'audio/mpeg' } })
+    })
+  }
   await assert.rejects(assistantSpeak({ text: 'x'.repeat(4001) }), errorStatus(400))
   await assert.rejects(assistantSpeak({ text: 'Hello' }, async () => Response.json({ secret: 'hidden' })), errorStatus(502))
   for (let i = 0; i < 10; i++) assistantLimit('rate-test')

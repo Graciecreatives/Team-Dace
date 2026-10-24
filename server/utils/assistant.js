@@ -117,9 +117,9 @@ export async function assistantSpeak(input, fetcher = fetch) {
   if (!present('YARNGPT_API_KEY')) fail(503, 'Voice is not configured')
   try {
     const response = await fetcher('https://api.yarngpt.ai/api/v1/streaming/conversation', {
-      method: 'POST', headers: { Authorization: `Bearer ${process.env.YARNGPT_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
+      method: 'POST', headers: { Authorization: `Bearer ${process.env.YARNGPT_API_KEY.trim()}`, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
       signal: AbortSignal.timeout(45000), redirect: 'error',
-      body: JSON.stringify({ text: input.text.trim(), output_format: 'mp3', ...(process.env.YARNGPT_VOICE ? { voice: process.env.YARNGPT_VOICE } : {}) })
+      body: JSON.stringify({ text: input.text.trim(), output_format: 'mp3', ...(process.env.YARNGPT_VOICE?.trim() ? { voice: process.env.YARNGPT_VOICE.trim() } : {}) })
     })
     if (!response.ok) providerError(response.status, 'YarnGPT')
     if (!/^audio\/(mpeg|mp3)(;|$)/i.test(response.headers.get('content-type') || '')) throw new Error('Voice unavailable')
