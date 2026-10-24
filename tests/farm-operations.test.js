@@ -21,7 +21,7 @@ function fixture() {
 }
 const rejects = (fn, status) => assert.throws(fn, e => e.statusCode === status)
 
-test('invitations hash single-use tokens and require exact signed account email', () => {
+test('invitations hash single-use tokens and require the signed account email', () => {
   const { data, workspace, users, owner } = fixture()
   const { token } = changeOperations(data, owner, { action: 'team.invite', email: users[1].email, role: 'worker' })
   assert.match(token, /^[a-f0-9]{64}$/)
@@ -30,9 +30,9 @@ test('invitations hash single-use tokens and require exact signed account email'
   assert.ok(!JSON.stringify(operationsView(data, owner)).includes('tokenHash'))
   const before = JSON.stringify(data)
   rejects(() => acceptInvitation(data, users[2], { token }), 403)
-  rejects(() => acceptInvitation(data, { ...users[1], email: 'Worker@example.test' }, { token }), 403)
+  rejects(() => acceptInvitation(data, { ...users[1], email: 'wrong@example.test' }, { token }), 403)
   assert.equal(JSON.stringify(data), before)
-  assert.deepEqual(acceptInvitation(data, users[1], { token }), { farmId: 'owner' })
+  assert.deepEqual(acceptInvitation(data, { ...users[1], email: 'Worker@Example.Test' }, { token }), { farmId: 'owner' })
   assert.equal(workspaceContext(data, users[1], 'owner').role, 'worker')
   rejects(() => acceptInvitation(data, users[1], { token }), 404)
   assert.ok(!JSON.stringify(operationsView(data, workspaceContext(data, users[1], 'owner'))).includes(users[1].email))
@@ -61,7 +61,7 @@ test('tasks enforce active assignee accounts, season ownership and atomic stock 
   rejects(() => changeOperations(data, worker, create), 403)
   const { taskId: id } = changeOperations(data, owner, create)
   const consume = { action: 'tasks.consume', id, inventoryId: 'feed', quantity: 5 }
-  for (const fields of [{ quantity: 21 }, { quantity: 0 }, { quantity: '2' }, { inventoryId: 'foreign' }]) {
+  for (const fields of [{ quantity: 21 }, { quantity: 0 }, { quantity: 0.0000001 }, { quantity: 1.1234567 }, { quantity: '2' }, { inventoryId: 'foreign' }]) {
     const before = JSON.stringify(data)
     assert.throws(() => changeOperations(data, worker, { ...consume, ...fields }))
     assert.equal(JSON.stringify(data), before)
@@ -70,6 +70,7 @@ test('tasks enforce active assignee accounts, season ownership and atomic stock 
   rejects(() => changeOperations(data, { ...worker, role: 'viewer' }, consume), 403)
   changeOperations(data, worker, consume)
   assert.equal(data.inventory[0].quantity, 15)
+  assert.ok(Number.isFinite(Date.parse(data.inventory[0].updatedAt)))
   assert.equal(workspace.movements[0].actorId, 'worker')
   assert.equal(workspace.movements[0].taskId, id)
   assert.equal(workspace.movements[0].seasonId, 'season')
@@ -104,6 +105,11 @@ test('HTTP signed accounts accept invitations, replay safely and lose access on 
     const worker = (await register('worker@example.test')).cookie
     const other = (await register('other@example.test')).cookie
     const farmId = (await request('/api/management', owner)).payload.farm.id
+    const pendingInvite = (await request('/api/management', owner, command('team.invite', { email: 'OTHER@EXAMPLE.TEST', role: 'viewer' }))).payload
+    const pendingId = pendingInvite.operations.invitations[0].id
+    await request('/api/management', other, command('team.revoke', { farmId, id: pendingId }), 403)
+    await request('/api/management', owner, command('team.revoke', { id: pendingId }))
+    await request('/api/management', other, command('team.accept', { token: pendingInvite.result.token }), 404)
     const inviteInput = command('team.invite', { email: 'worker@example.test', role: 'worker' })
     await request('/api/management', owner, inviteInput, 403, 'https://evil.example')
     const invite = (await request('/api/management', owner, inviteInput)).payload
@@ -136,6 +142,60 @@ test('HTTP signed accounts accept invitations, replay safely and lose access on 
     await new Promise(resolve => server.close(resolve))
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test('owners revoke pending invitations and viewers cannot receive tasks', () => {
+  const { data, workspace, users, owner } = fixture()
+  const { token } = changeOperations(data, owner, { action: 'team.invite', email: 'WORKER@Example.Test', role: 'viewer' })
+  assert.equal(workspace.invitations[0].email, users[1].email)
+  const id = workspace.invitations[0].id
+  rejects(() => changeOperations(data, { ...owner, role: 'manager' }, { action: 'team.revoke', id }), 403)
+  changeOperations(data, owner, { action: 'team.revoke', id })
+  rejects(() => acceptInvitation(data, users[1], { token }), 404)
+  assert.ok(workspace.invitations[0].revokedAt)
+  assert.equal(workspace.invitations[0].tokenHash, undefined)
+  workspace.members.push({ userId: 'worker', role: 'viewer', status: 'active' })
+  rejects(() => changeOperations(data, owner, { action: 'tasks.create', title: 'Work', dueOn: '2026-10-25', assigneeId: 'worker' }), 400)
+  const { taskId } = changeOperations(data, owner, { action: 'tasks.create', title: 'Work', dueOn: '2026-10-25', assigneeId: 'owner' })
+  data.inventory[0].quantity = 0.3
+  changeOperations(data, owner, { action: 'tasks.consume', id: taskId, inventoryId: 'feed', quantity: 0.1 })
+  assert.equal(data.inventory[0].quantity, 0.2)
+})
+
+test('operations drafts reset only after a matching confirmed command', async () => {
+  const vue = await import('vue')
+  const source = await readFile('app/components/FarmOperations.vue', 'utf8')
+  const { descriptor } = parse(source)
+  const props = vue.reactive({ state: { lastCommandId: 'before', result: null }, busy: false })
+  const emitted = []
+  const setup = new Function('computed', 'reactive', 'ref', 'watch', 'defineProps', 'defineEmits', descriptor.scriptSetup.content.replace(/import .* from 'vue'/, '') + '\nreturn { invite, accept, task, consume, submit }')
+  const forms = setup(vue.computed, vue.reactive, vue.ref, vue.watch, () => props, () => (...args) => emitted.push(args))
+  forms.task.title = 'Retain until confirmed'
+  forms.submit('tasks.create', forms.task)
+  await vue.nextTick()
+  assert.equal(forms.task.title, 'Retain until confirmed')
+  props.state = { lastCommandId: 'unrelated', result: { action: 'team.invite' } }
+  await vue.nextTick()
+  assert.equal(forms.task.title, 'Retain until confirmed')
+  props.state = { lastCommandId: 'confirmed', result: { action: 'tasks.create' } }
+  await vue.nextTick()
+  assert.equal(forms.task.title, '')
+  forms.consume.task = { inventoryId: 'stock', quantity: 2 }
+  forms.submit('tasks.consume', { id: 'task' })
+  props.state = { lastCommandId: 'consumed', result: { action: 'tasks.consume' } }
+  await vue.nextTick()
+  assert.equal(forms.consume.task, undefined)
+  forms.accept.token = 'private-token'
+  forms.submit('team.accept', forms.accept)
+  props.state = { lastCommandId: 'joined', result: { action: 'team.accept' } }
+  await vue.nextTick()
+  assert.equal(forms.accept.token, '')
+  forms.invite.email = 'person@example.test'
+  forms.submit('team.invite', forms.invite)
+  props.state = { lastCommandId: 'invited', result: { action: 'team.invite', token: 'one-time' } }
+  await vue.nextTick()
+  assert.equal(forms.invite.email, '')
+  assert.equal(props.state.result.token, 'one-time')
 })
 
 test('operations Vue compiles and interpolates one-time result token safely', async () => {

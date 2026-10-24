@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 const props = defineProps({ state: { type: Object, required: true }, busy: Boolean, section: { type: String, default: 'operations' } })
 const emit = defineEmits(['command'])
 const operations = computed(() => props.state.operations || { members: [], tasks: [], invitations: [], movements: [] })
@@ -10,7 +10,20 @@ const invite = reactive({ email: '', role: 'worker' })
 const accept = reactive({ token: '' })
 const task = reactive({ title: '', dueOn: '', assigneeId: '', seasonId: '' })
 const consume = reactive({})
-const submit = (action, fields) => emit('command', { action, ...fields })
+const pending = ref(null)
+const submit = (action, fields) => {
+  pending.value = { action, id: fields.id }
+  emit('command', { action, ...fields })
+}
+watch(() => props.state.lastCommandId, (id, previous) => {
+  if (!id || id === previous || props.state.result?.action !== pending.value?.action) return
+  const action = pending.value.action
+  if (action === 'team.invite') Object.assign(invite, { email: '', role: 'worker' })
+  if (action === 'team.accept') accept.token = ''
+  if (action === 'tasks.create') Object.assign(task, { title: '', dueOn: '', assigneeId: '', seasonId: '' })
+  if (action === 'tasks.consume') delete consume[pending.value.id]
+  pending.value = null
+})
 const memberName = id => operations.value.members.find(m => m.userId === id)?.name || 'Unassigned'
 </script>
 
@@ -19,7 +32,7 @@ const memberName = id => operations.value.members.find(m => m.userId === id)?.na
     <template v-if="section === 'team'">
       <header><p class="eyebrow">Connected farm</p><h2>Team access</h2><p>These accounts can use this farm's shared tools. Your profile and settings remain private.</p></header>
       <form class="card" @submit.prevent="submit('team.accept', accept)">
-        <h3>Accept a farm invitation</h3><p>Sign in with the exact invited email address, then paste the private token. Invitations expire after seven days.</p>
+        <h3>Accept a farm invitation</h3><p>Sign in with the invited email address, then paste the private token. Invitations expire after seven days.</p>
         <label>Invitation token<input v-model="accept.token" required maxlength="64" autocomplete="off" spellcheck="false" /></label>
         <button :disabled="busy || !accept.token">Join invited farm</button>
       </form>
@@ -31,13 +44,13 @@ const memberName = id => operations.value.members.find(m => m.userId === id)?.na
       </form>
       <div v-if="owner && state.result?.token" class="card token" role="status"><h3>Share this token privately</h3><p>No email was sent. This token is returned only once. Copy it before leaving or sending another command.</p><code>{{ state.result.token }}</code></div>
       <div class="card"><h3>Farm accounts</h3><ul><li v-for="member in operations.members" :key="member.userId"><span>{{ member.name }} · {{ member.role }}</span><button v-if="owner && member.role !== 'owner'" :disabled="busy" class="secondary" @click="submit('team.remove', { userId: member.userId })">Revoke access</button></li></ul></div>
-      <div v-if="owner && operations.invitations.length" class="card"><h3>Invitations</h3><ul><li v-for="invitation in operations.invitations" :key="invitation.id">{{ invitation.email }} · {{ invitation.role }} · {{ invitation.revokedAt ? 'Revoked' : invitation.acceptedAt ? 'Accepted' : `Expires ${invitation.expiresAt.slice(0, 10)}` }}</li></ul></div>
+      <div v-if="owner && operations.invitations.length" class="card"><h3>Invitations</h3><ul><li v-for="invitation in operations.invitations" :key="invitation.id">{{ invitation.email }} · {{ invitation.role }} · {{ invitation.revokedAt ? 'Revoked' : invitation.acceptedAt ? 'Accepted' : `Expires ${invitation.expiresAt.slice(0, 10)}` }}<button v-if="!invitation.acceptedAt && !invitation.revokedAt" :disabled="busy" class="secondary" @click="submit('team.revoke', { id: invitation.id })">Revoke invitation</button></li></ul></div>
     </template>
     <template v-else>
       <header><p class="eyebrow">Daily work</p><h2>Farm operations</h2><p>Assign real farm accounts, track completion and record stock used for each task.</p></header>
       <form v-if="manage" class="card grid" @submit.prevent="submit('tasks.create', task)">
         <h3>Create a task</h3><label>Task title<input v-model="task.title" required maxlength="200" /></label><label>Due date<input v-model="task.dueOn" type="date" required /></label>
-        <label>Assignee<select v-model="task.assigneeId"><option value="">Unassigned</option><option v-for="member in operations.members" :key="member.userId" :value="member.userId">{{ member.name }} ({{ member.role }})</option></select></label>
+        <label>Assignee<select v-model="task.assigneeId"><option value="">Unassigned</option><option v-for="member in operations.members.filter(m => m.role !== 'viewer')" :key="member.userId" :value="member.userId">{{ member.name }} ({{ member.role }})</option></select></label>
         <label>Season<select v-model="task.seasonId"><option value="">No season</option><option v-for="season in state.planning?.seasons || []" :key="season.id" :value="season.id">{{ season.name }}</option></select></label><button :disabled="busy">Create task</button>
       </form>
       <p v-if="!operations.tasks.length" class="card">No tasks yet.</p>
@@ -46,7 +59,7 @@ const memberName = id => operations.value.members.find(m => m.userId === id)?.na
         <button v-if="canUpdate(item)" :disabled="busy" class="secondary" @click="submit('tasks.complete', { id: item.id, completed: !item.completed })">{{ item.completed ? 'Reopen task' : 'Mark complete' }}</button>
         <form v-if="canUpdate(item) && !item.completed" class="consume" @submit.prevent="submit('tasks.consume', { id: item.id, inventoryId: consume[item.id]?.inventoryId, quantity: Number(consume[item.id]?.quantity) })">
           <label>Inventory to use<select :value="consume[item.id]?.inventoryId || ''" required @change="consume[item.id] = { ...consume[item.id], inventoryId: $event.target.value }"><option value="">Choose stock</option><option v-for="stock in state.inventory || []" :key="stock.id" :value="stock.id">{{ stock.name }} · {{ stock.quantity }} {{ stock.unit }}</option></select></label>
-          <label>Quantity<input :value="consume[item.id]?.quantity || ''" type="number" min="0.000001" step="any" required @input="consume[item.id] = { ...consume[item.id], quantity: $event.target.value }" /></label><button :disabled="busy">Record stock used</button>
+          <label>Quantity<input :value="consume[item.id]?.quantity || ''" type="number" min="0.000001" step="0.000001" required @input="consume[item.id] = { ...consume[item.id], quantity: $event.target.value }" /></label><button :disabled="busy">Record stock used</button>
         </form><p v-if="state.farm?.role === 'worker'" class="hint">Only the assigned worker can update this task. Stock use cannot be undone here.</p>
       </article>
       <div v-if="operations.movements.length" class="card"><h3>Stock usage history</h3><ul><li v-for="movement in operations.movements" :key="movement.id">{{ movement.createdAt.slice(0, 10) }} · {{ state.inventory?.find(s => s.id === movement.inventoryId)?.name || 'Stock' }} · {{ movement.quantity }} used · {{ memberName(movement.actorId) }}</li></ul></div>
