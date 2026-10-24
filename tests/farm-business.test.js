@@ -107,21 +107,39 @@ test('business Vue component compiles script, template and print styles', async 
   assert.ok(source.includes('Cash sale invoice (NGN)'))
   assert.ok(source.includes('Seller: {{ invoice.sellerName'))
   assert.ok(source.includes('Nigerian naira (NGN)'))
+  assert.ok(source.includes('<FbTabs v-model="activeTab" :items="tabs"'))
+  for (const name of ['harvest', 'sale', 'expense']) assert.ok(source.includes(`<template #${name}>`))
   assert.ok(!source.includes('farm currency'))
   assert.deepEqual(errors, [])
   const script = compileScript(descriptor, { id: 'business' })
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: 'FarmBusiness.vue', id: 'business', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
   for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, filename: 'FarmBusiness.vue', id: 'business', scoped: style.scoped }).errors, [])
 })
-test('business form drafts reset only after the matching confirmed server receipt', async () => {
+test('business mounted lifecycle preserves in-flight edits and scopes successful receipts', async () => {
   const source = await readFile(new URL('../app/components/FarmBusiness.vue', import.meta.url), 'utf8')
   const { descriptor } = parse(source)
   const props = Vue.reactive({ state: {}, busy: false })
   const commands = []
-  const body = descriptor.scriptSetup.content.replace(/^import .* from 'vue'\n/m, '')
-  const setup = new Function('computed', 'nextTick', 'reactive', 'ref', 'watch', 'defineProps', 'defineEmits', `${body}\nreturn { harvest, sale, expense, delivery, send }`)
-  const scope = Vue.effectScope()
-  const drafts = scope.run(() => setup(Vue.computed, Vue.nextTick, Vue.reactive, Vue.ref, Vue.watch, () => props, () => (_, payload) => commands.push(payload)))
+  const compiled = compileScript(descriptor, { id: 'business-lifecycle' }).content
+    .replace(/^import \{([^}]+)\} from 'vue'\n/m, 'const {$1} = Vue\n')
+    .replace(/^import .* from .*\n/gm, '')
+    .replace('export default', 'return')
+  const component = new Function('Vue', 'FbTabs', 'FbButton', 'FbPageHeader', 'FbPanel', compiled)(Vue, {}, {}, {}, {})
+  // Mount with Vue's real renderer so watcher scheduling and unmount disposal
+  // are exercised, rather than invoking watchers outside a component lifecycle.
+  const renderer = Vue.createRenderer({
+    createComment: () => ({}), createText: () => ({}), createElement: () => ({}),
+    insert() {}, remove() {}, setText() {}, setElementText() {}, patchProp() {},
+    parentNode: () => null, nextSibling: () => null
+  })
+  let drafts
+  const setup = component.setup
+  component.setup = (props, context) => { drafts = setup(props, context); return drafts }
+  component.render = () => null
+  const app = renderer.createApp({ setup() {
+    return () => Vue.h(component, { state: props.state, busy: props.busy, onCommand: payload => commands.push(payload) })
+  } })
+  app.mount({})
   try {
     Object.assign(drafts.harvest, { seasonId: 'season', inventoryId: 'stock', quantity: '2', note: 'Keep until confirmed' })
     drafts.sale.customer = 'Unsaved customer'
@@ -144,15 +162,65 @@ test('business form drafts reset only after the matching confirmed server receip
     assert.equal(drafts.harvest.note, 'Next draft', 'same receipt must not clear a later draft')
     props.state = { lastCommandId: 'confirmed-2', result: { action: 'orders.create' } }
     await Vue.nextTick()
-    assert.equal(drafts.sale.customer, '')
+    assert.equal(drafts.sale.customer, 'Unsaved customer', 'unsubmitted sales survive unrelated receipts')
+    drafts.sale.quantity = '1'
+    drafts.sale.unitPrice = '2'
+    drafts.send('orders.create', drafts.sale)
+    drafts.sale.customer = 'Edited during request'
+    props.state = { lastCommandId: 'confirmed-sale', result: { action: 'orders.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.sale.customer, 'Edited during request')
+    drafts.send('orders.create', drafts.sale)
+    props.state = { lastCommandId: 'confirmed-sale-unchanged', result: { action: 'orders.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.sale.customer, '', 'unchanged submitted sale clears')
+    Object.assign(drafts.harvest, { quantity: '4', note: 'Submitted' })
+    drafts.send('harvest.create', drafts.harvest)
+    drafts.harvest.note = 'Edited harvest'
+    props.state = { lastCommandId: 'confirmed-harvest-edited', result: { action: 'harvest.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.harvest.note, 'Edited harvest')
+    const count = commands.length
+    drafts.expense.amount = 'not a number'
+    drafts.send('expense.create', drafts.expense)
+    assert.equal(commands.length, count, 'invalid amounts are never emitted')
+    props.busy = true
+    await Vue.nextTick()
+    drafts.expense.amount = '3'
+    drafts.send('expense.create', drafts.expense)
+    assert.equal(commands.length, count, 'busy submissions are ignored')
+    props.busy = false
+    await Vue.nextTick()
+    drafts.expense.amount = '3'
+    drafts.send('expense.create', drafts.expense)
     props.state = { lastCommandId: 'confirmed-3', result: { action: 'expense.create' } }
     await Vue.nextTick()
     assert.equal(drafts.expense.title, '')
     drafts.delivery.order = { status: 'delivered', reference: 'Truck' }
-    props.state = { lastCommandId: 'confirmed-4', result: { action: 'orders.deliver' } }
+    drafts.delivery.other = { reference: 'Unrelated draft' }
+    drafts.send('orders.deliver', { id: 'order', status: 'delivered', reference: 'Truck' })
+    props.state = { lastCommandId: 'wrong-order', result: { action: 'orders.deliver', id: 'other' } }
     await Vue.nextTick()
+    assert.equal(drafts.delivery.order.reference, 'Truck')
+    props.state = { lastCommandId: 'confirmed-4', result: { action: 'orders.deliver', id: 'order' } }
+    await Vue.nextTick()
+    assert.deepEqual(Object.keys(drafts.delivery), ['other'])
+    drafts.send('orders.deliver', { id: 'other', status: 'delivered', reference: 'Unrelated draft' })
+    drafts.delivery.other = { reference: 'Edited while saving' }
+    props.state = { lastCommandId: 'confirmed-5', result: { action: 'orders.deliver', id: 'other' } }
+    await Vue.nextTick()
+    assert.equal(drafts.delivery.other.reference, 'Edited while saving')
+    drafts.send('harvest.create', drafts.harvest)
+    props.state = { farm: { id: 'new-farm' } }
+    await Vue.nextTick()
+    assert.equal(drafts.harvest.note, '')
+    assert.equal(drafts.sale.customer, '')
     assert.deepEqual(Object.keys(drafts.delivery), [])
-  } finally { scope.stop() }
+    drafts.harvest.note = 'New farm draft'
+    props.state = { farm: { id: 'new-farm' }, lastCommandId: 'late', result: { action: 'harvest.create' } }
+    await Vue.nextTick()
+    assert.equal(drafts.harvest.note, 'New farm draft')
+  } finally { app.unmount() }
 })
 test('real management HTTP cash-sale lifecycle, replay, rollback and authentication', async () => {
   const directory = await mkdtemp(join(process.env.JCODE_SCRATCH_DIR || tmpdir(), 'business-'))
