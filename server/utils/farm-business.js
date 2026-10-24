@@ -65,11 +65,17 @@ export function changeBusiness(data, ctx, input) {
     const q = quantity(input.quantity), unitPriceMinor = moneyMinor(input.unitPrice)
     const customer = text(input.customer, 'Customer', 200)
     const when = date(input.date, 'Order date')
-    if (input.productId !== undefined && !(data.marketplaceProducts || []).some(p => p.id === input.productId && p.ownerId === ctx.farmId)) fail(404, 'Farm product unavailable')
+    if (input.productId !== undefined) {
+      const product = (data.marketplaceProducts || []).find(p => p.id === input.productId && p.ownerId === ctx.farmId)
+      if (!product) fail(404, 'Farm product unavailable')
+      if (product.currency !== 'NGN') fail(400, 'Sales bookkeeping uses NGN. Choose an NGN storefront product')
+    }
+    const seller = data.users?.find(user => user.id === ctx.farmId)
+    const sellerName = seller?.farmName || (seller?.name ? `${seller.name}'s farm` : 'Farm')
     const amountMinor = amountFor(q, unitPriceMinor)
     limit(ws.orders)
     const id = randomUUID()
-    const row = { id, invoiceId: `INV-${id.toUpperCase()}`, seasonId: input.seasonId, inventoryId: stock.id, itemName: stock.name, unit: stock.unit, quantity: q, unitPriceMinor, amountMinor, customer, date: when, status: 'draft', delivery: { status: 'pending', reference: '' }, createdAt: new Date().toISOString(), ...(input.productId ? { productId: input.productId } : {}) }
+    const row = { id, sellerName, currency: 'NGN', invoiceId: `INV-${id.toUpperCase()}`, seasonId: input.seasonId, inventoryId: stock.id, itemName: stock.name, unit: stock.unit, quantity: q, unitPriceMinor, amountMinor, customer, date: when, status: 'draft', delivery: { status: 'pending', reference: '' }, createdAt: new Date().toISOString(), ...(input.productId ? { productId: input.productId } : {}) }
     ws.orders.push(row)
     return { id }
   }
@@ -130,5 +136,5 @@ export function businessView(data, ctx) {
     group[key] = safe(group[key] + minor); overall[key] = safe(overall[key] + minor)
   }
   for (const group of [...seasons, unallocated, overall]) group.profitMinor = safe(group.incomeMinor - group.expenseMinor)
-  return { orders: ctx.workspace.orders.map(o => ({ ...o, delivery: { ...o.delivery } })), reports: { seasons, unallocated, overall } }
+  return { orders: ctx.workspace.orders.map(o => ({ ...o, delivery: { ...o.delivery } })), reports: { currency: 'NGN', seasons, unallocated, overall } }
 }

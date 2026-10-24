@@ -26,7 +26,7 @@ watch(() => props.state.lastCommandId, (id, previous) => {
   }
   error.value = ''
 })
-const format = minor => (minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const format = minor => `NGN ${(minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 function send(action, fields) {
   error.value = ''
   if (props.busy) return
@@ -68,10 +68,10 @@ async function print(row) {
           <h3>Draft a manual sale</h3>
           <label>Season<select v-model="sale.seasonId" required><option disabled value="">Choose season</option><option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
           <label>Stock item<select v-model="sale.inventoryId" required><option disabled value="">Choose stock</option><option v-for="s in stock" :key="s.id" :value="s.id">{{ s.name }} ({{ s.quantity }} {{ s.unit }})</option></select></label>
-          <label>Optional storefront product<select v-model="sale.productId"><option value="">No storefront mapping</option><option v-for="p in state.products || []" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <label>Optional storefront product (NGN only)<select v-model="sale.productId"><option value="">No storefront mapping</option><option v-for="p in (state.products || []).filter(product => product.currency === 'NGN')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
           <p>This explicitly maps the selected product to this stock item for this order only. Legacy storefront quantities are not changed.</p>
           <label>Sale quantity<input v-model="sale.quantity" required type="number" min="0.000001" step="0.000001"></label>
-          <label>Unit price (farm currency)<input v-model="sale.unitPrice" required type="number" min="0.01" step="0.01"></label>
+          <label>Unit price (NGN)<input v-model="sale.unitPrice" required type="number" min="0.01" step="0.01"></label>
           <label>Customer<input v-model="sale.customer" required maxlength="200"></label>
           <label>Sale date<input v-model="sale.date" required type="date"></label>
           <p>Drafts reserve no stock. Confirm only after receiving cash payment. Totals round half up to the nearest minor unit.</p>
@@ -81,7 +81,7 @@ async function print(row) {
           <h3>Season expense</h3>
           <label>Season<select v-model="expense.seasonId" required><option disabled value="">Choose season</option><option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select></label>
           <label>Expense title<input v-model="expense.title" required maxlength="200"></label>
-          <label>Amount (farm currency)<input v-model="expense.amount" required type="number" min="0.01" step="0.01"></label>
+          <label>Amount (NGN)<input v-model="expense.amount" required type="number" min="0.01" step="0.01"></label>
           <label>Expense date<input v-model="expense.date" required type="date"></label>
           <label>Expense note<textarea v-model="expense.note" maxlength="2000" /></label>
           <button :disabled="busy || !seasons.length">Record expense</button>
@@ -105,9 +105,9 @@ async function print(row) {
           </template>
         </article>
       </section>
-      <section aria-label="Profit reports"><h3>Season profit report</h3><p>Recorded income minus recorded expenses, in your bookkeeping currency. This is not a tax return.</p><div class="table-wrap"><table><thead><tr><th scope="col">Season</th><th scope="col">Income</th><th scope="col">Expenses</th><th scope="col">Profit</th></tr></thead><tbody><tr v-for="r in [...business.reports.seasons, business.reports.unallocated, { ...business.reports.overall, name: 'Overall', id: 'overall' }]" :key="r.id || 'unallocated'"><th scope="row">{{ r.name }}</th><td>{{ format(r.incomeMinor) }}</td><td>{{ format(r.expenseMinor) }}</td><td>{{ format(r.profitMinor) }}</td></tr></tbody></table></div></section>
+      <section aria-label="Profit reports"><h3>Season profit report</h3><p>Recorded income minus recorded expenses, in Nigerian naira (NGN). No currency conversion is performed. This is not a tax return.</p><div class="table-wrap"><table><thead><tr><th scope="col">Season</th><th scope="col">Income</th><th scope="col">Expenses</th><th scope="col">Profit</th></tr></thead><tbody><tr v-for="r in [...business.reports.seasons, business.reports.unallocated, { ...business.reports.overall, name: 'Overall', id: 'overall' }]" :key="r.id || 'unallocated'"><th scope="row">{{ r.name }}</th><td>{{ format(r.incomeMinor) }}</td><td>{{ format(r.expenseMinor) }}</td><td>{{ format(r.profitMinor) }}</td></tr></tbody></table></div></section>
     </template>
-    <Teleport to="body"><section v-if="invoice" class="farm-invoice"><h1>Cash sale invoice</h1><p>{{ invoice.invoiceId }}</p><p>Date: {{ invoice.date }}</p><p>Customer: {{ invoice.customer }}</p><p>{{ invoice.itemName }} · {{ invoice.quantity }} {{ invoice.unit }} · Unit price {{ format(invoice.unitPriceMinor) }}</p><h2>Total paid: {{ format(invoice.amountMinor) }}</h2><p>Cash payment recorded. Not a tax invoice. Amounts in farm bookkeeping currency.</p></section></Teleport>
+    <Teleport to="body"><section v-if="invoice" class="farm-invoice"><h1>Cash sale invoice (NGN)</h1><p>Seller: {{ invoice.sellerName || state.farm?.name }}</p><p>{{ invoice.invoiceId }}</p><p>Date: {{ invoice.date }}</p><p>Customer: {{ invoice.customer }}</p><p>{{ invoice.itemName }} · {{ invoice.quantity }} {{ invoice.unit }} · Unit price {{ format(invoice.unitPriceMinor) }}</p><h2>Total paid: {{ format(invoice.amountMinor) }}</h2><p>Cash payment recorded. Not a tax invoice. Amounts in Nigerian naira (NGN).</p></section></Teleport>
   </section>
 </template>
 

@@ -15,7 +15,7 @@ function fixture() {
   const workspace = emptyWorkspace('owner')
   workspace.seasons.push({ id: 'season', name: 'Maize' })
   const ctx = { user: { id: 'owner' }, farmId: 'owner', role: 'owner', workspace }
-  const data = { records: [], inventory: [{ id: 'stock', userId: 'owner', name: 'Maize', quantity: 10, unit: 'kg' }, { id: 'foreign', userId: 'other', quantity: 20 }], marketplaceProducts: [{ id: 'product', ownerId: 'owner', quantity: 99 }, { id: 'other-product', ownerId: 'other' }] }
+  const data = { users: [{ id: 'owner', name: 'Owner', farmName: 'Green Acre Farm' }], records: [], inventory: [{ id: 'stock', userId: 'owner', name: 'Maize', quantity: 10, unit: 'kg' }, { id: 'foreign', userId: 'other', quantity: 20 }], marketplaceProducts: [{ id: 'product', ownerId: 'owner', quantity: 99, currency: 'NGN' }, { id: 'usd-product', ownerId: 'owner', currency: 'USD' }, { id: 'other-product', ownerId: 'other' }] }
   const sale = { action: 'orders.create', seasonId: 'season', inventoryId: 'stock', quantity: 1.5, unitPrice: 10.01, customer: 'Buyer', date: '2026-10-24' }
   return { data, ctx, sale, run: input => changeBusiness(data, ctx, input) }
 }
@@ -50,6 +50,10 @@ test('harvest, confirmation exactly once, immutable invoices and delivery', () =
   assert.equal(f.data.records.length, 0)
   rejectedWithoutMutation(f, { action: 'orders.deliver', id, status: 'delivered' }, 409)
   const invoice = row.invoiceId
+  assert.equal(row.sellerName, 'Green Acre Farm')
+  assert.equal(row.currency, 'NGN')
+  f.data.users[0].farmName = 'Renamed Farm'
+  assert.equal(row.sellerName, 'Green Acre Farm', 'seller snapshot stays stable after farm rename')
   f.run({ action: 'orders.confirm', id, amountMinor: 1, quantity: 999 })
   const confirmedTimestamp = f.data.inventory[0].updatedAt
   assert.ok(confirmedTimestamp > harvestTimestamp)
@@ -73,6 +77,7 @@ test('harvest, confirmation exactly once, immutable invoices and delivery', () =
 test('ownership, roles, insufficient stock, validation and cancellation never partially mutate', () => {
   const f = fixture()
   for (const input of [{ ...f.sale, seasonId: 'foreign' }, { ...f.sale, inventoryId: 'foreign' }, { ...f.sale, productId: 'other-product' }]) rejectedWithoutMutation(f, input, 404)
+  rejectedWithoutMutation(f, { ...f.sale, productId: 'usd-product' }, 400)
   for (const input of [{ ...f.sale, quantity: -1 }, { ...f.sale, quantity: '1' }, { ...f.sale, date: '2026-02-30' }, { ...f.sale, customer: '<script>' }]) rejectedWithoutMutation(f, input, 400)
   for (const role of ['worker', 'viewer']) { f.ctx.role = role; rejectedWithoutMutation(f, f.sale, 403); assert.equal(businessView(f.data, f.ctx), null) }
   f.ctx.role = 'manager'
@@ -88,6 +93,7 @@ test('expenses and reports isolate farms and separate unallocated totals', () =>
   f.run({ action: 'orders.confirm', id: f.run(f.sale).id })
   f.data.records.push({ userId: 'owner', category: 'income', amount: 5 }, { userId: 'other', category: 'income', amount: 1000 })
   const reports = businessView(f.data, f.ctx).reports
+  assert.equal(reports.currency, 'NGN')
   assert.deepEqual(reports.overall, { incomeMinor: 2002, expenseMinor: 299, profitMinor: 1703 })
   assert.equal(reports.seasons[0].profitMinor, 1203)
   assert.equal(reports.unallocated.incomeMinor, 500)
@@ -96,6 +102,12 @@ test('expenses and reports isolate farms and separate unallocated totals', () =>
 test('business Vue component compiles script, template and print styles', async () => {
   const source = await readFile(new URL('../app/components/FarmBusiness.vue', import.meta.url), 'utf8')
   const { descriptor, errors } = parse(source)
+  assert.ok(source.includes('Unit price (NGN)'))
+  assert.ok(source.includes('Amount (NGN)'))
+  assert.ok(source.includes('Cash sale invoice (NGN)'))
+  assert.ok(source.includes('Seller: {{ invoice.sellerName'))
+  assert.ok(source.includes('Nigerian naira (NGN)'))
+  assert.ok(!source.includes('farm currency'))
   assert.deepEqual(errors, [])
   const script = compileScript(descriptor, { id: 'business' })
   assert.deepEqual(compileTemplate({ source: descriptor.template.content, filename: 'FarmBusiness.vue', id: 'business', compilerOptions: { bindingMetadata: script.bindings } }).errors, [])
@@ -180,6 +192,9 @@ test('real management HTTP cash-sale lifecycle, replay, rollback and authenticat
     assert.equal(first.body.inventory[0].quantity, 15)
     const draft = await post({ action: 'orders.create', seasonId, inventoryId: stockId, quantity: 2, unitPrice: 10.01, customer: 'Buyer', date: '2026-10-24' })
     const id = draft.body.business.orders[0].id
+    assert.equal(draft.body.business.orders[0].sellerName, 'Farm')
+    assert.equal(draft.body.business.orders[0].currency, 'NGN')
+    assert.equal(draft.body.business.reports.currency, 'NGN')
     const confirm = { commandId: randomUUID(), action: 'orders.confirm', id }
     await Promise.all([post(confirm), post({ action: 'orders.confirm', id })])
     await post(confirm)
